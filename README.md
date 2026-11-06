@@ -12,7 +12,7 @@ Atlas runs on your own PC. Nothing is uploaded anywhere, and nothing it shows is
 - **Works like Explorer inside any folder.** New folder, rename, copy, cut, paste, delete (always to the Recycle Bin), download, open on the PC, and color tags.
 - **Previews files.** Images (including iPhone HEIC and TIFF, converted on the PC), video, audio, PDF page by page, 3D models (STL, OBJ, PLY, GLB, GLTF) you can turn and zoom, and text. Full screen on the PC; on a phone files open full screen.
 - **Protects what must not change.** Folders you list as read only (a shared team site, a backup) can be browsed but never changed, and a protected tree is linked as it is and never rearranged.
-- **Goes with you.** Installed on a phone's home screen as an app, reachable only through your own [Tailscale](https://tailscale.com) network.
+- **Goes with you.** Installed on a phone's home screen as an app, one screen like any app, reachable only through your own [Tailscale](https://tailscale.com) network.
 
 ## Install (Windows 10 or 11)
 
@@ -31,7 +31,7 @@ To remove Atlas, run `uninstall.ps1`. Your files are never touched.
 1. Install Tailscale on the PC and the phone, signed in to the same account.
 2. The installer runs `tailscale serve --bg 8765`. The first time, Tailscale asks you to switch Serve on in your account; follow the link it prints.
 3. In Atlas on the PC: **Devices**, then **Pair a phone**. Scan the QR code with the phone's camera, or type the code into the box on Atlas's locked screen. A code works once, within 30 days (`pair_code_days`).
-4. In the phone's browser menu: **Install app** or **Add to Home screen**.
+4. In the phone's browser menu: **Install app** or **Add to Home screen**. The app opens signed in; the red **Lock** button signs the phone out.
 
 The phone reaches Atlas only through Tailscale, which is end-to-end encrypted. Nothing is opened on your router, and Tailscale Funnel (the public internet) is never used.
 
@@ -39,7 +39,8 @@ The phone reaches Atlas only through Tailscale, which is end-to-end encrypted. N
 
 Atlas can read and change your files, so it is built to be no easier to reach than the files themselves. In short:
 
-- Every page and request needs a signed-in device. The PC signs in with a private key in its Start menu link (accepted only on the PC itself); a phone pairs with a one-time code. Sign-in is an HttpOnly, SameSite=Strict cookie.
+- Every page and request needs a signed-in device. The PC signs in with a private key in its Start menu link (accepted only on the PC itself); a phone pairs with a one-time code. Sign-in is an HttpOnly cookie (SameSite=Lax, so an app on the home screen opens signed in), renewed for 180 days each time it is used.
+- The red **Lock** button signs the device you are on out at once. Devices lists every signed-in device, and the PC can sign any of them out.
 - Atlas answers only to its own addresses (blocks DNS rebinding) and accepts changes only from its own page (blocks other websites).
 - Every path is checked against the folders in your settings; network paths, `..`, `\\?\` paths and hidden file streams are refused. Read-only folders are enforced on the PC, not only in the page.
 - HTML, SVG and script files are shown as plain text in a sandbox and can't run. PDFs are drawn with PDF.js 4.10.38 (patched for CVE-2024-4367) with code evaluation off.
@@ -76,6 +77,7 @@ python tests\api_security.py     # sign-in, rebinding, cross-site, path checks, 
 python tests\e2e_files.py        # the whole interface in Chrome, PC and phone sizes
 python tests\place_check.py      # move a folder on the map and back
 python tests\phone_shell.py      # one-screen layout, Tree zoom limits, the phone's details sheet
+python tests\lock_check.py       # unlock with a code, Back, opening from the home screen, Lock
 ```
 
 The tests make their own folder in Downloads and remove it at the end. They need Atlas running and Chrome installed.

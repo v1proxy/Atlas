@@ -190,9 +190,10 @@ aside { min-height: 0; display: block; }
   .seg button { padding: 7px 8px; font-size: 12px; }
   #rescan { display: none; }
   header { position: relative; }
-  #devices { position: absolute; top: 6px; right: 12px; padding: 3px 10px; font-size: 12px; }
+  #devices { position: absolute; top: 6px; right: 76px; padding: 3px 10px; font-size: 12px; }
+  #lock { position: absolute; top: 6px; right: 12px; padding: 3px 12px; font-size: 12px; }
   .sub:has(.crumbs[hidden]) { display: none; }
-  .meta { padding-right: 84px; }
+  .meta { padding-right: 150px; }
   .sub { padding: 4px 12px; }
   .legend { display: none; }
   .crumbs { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
@@ -202,6 +203,8 @@ aside { min-height: 0; display: block; }
   body.sheet aside { transform: none; }
   .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 500 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 }
+.btn.lock { background: #C8362F; border-color: #C8362F; color: #fff; font-weight: 500; }
+.btn.lock:hover { background: #A92B25; border-color: #A92B25; }
 </style>
 </head>
 <body>
@@ -222,6 +225,7 @@ aside { min-height: 0; display: block; }
     </div>
     <button type="button" class="btn" id="rescan">Rescan now</button>
     <button type="button" class="btn" id="devices">Devices</button>
+    <button type="button" class="btn lock" id="lock" title="Sign this device out of Atlas">Lock</button>
   </div>
 </header>
 <div class="sub">
@@ -698,10 +702,15 @@ applyTone("red");
 fetch("/settings", { cache: "no-store" }).then(r => r.json()).then(s => { applyTone(s.tone || "red"); if (s.view && s.view !== S.view) setView(s.view, false); }).catch(() => {});
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
 $("#devices").onclick = devicesPanel;
+$("#lock").onclick = () => {
+  const pc = /^(127\.0\.0\.1|localhost)(:|$)/.test(location.host);
+  if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code from Atlas on the PC.")) location.replace("/logout");
+};
 // Phone: the details panel is a sheet that slides up whenever it has something to show.
 new MutationObserver(() => document.body.classList.toggle("sheet", !$("#panel .empty"))).observe($("#panel"), { childList: true });
 $("#sheetx").onclick = () => document.body.classList.remove("sheet");
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+try { sessionStorage.removeItem("atlasRetry"); } catch (e) {}
 load(); crumbs();
 setInterval(() => fetch("/map.json", { cache: "no-store" }).then(r => r.json()).then(d => { if (d.generated && d.generated !== S.gen) load(); }).catch(() => {}), 60000);
 </script>

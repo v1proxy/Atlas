@@ -6,9 +6,9 @@ Atlas is a small web server on your PC that can read and change your files. This
 
 | Threat | Defence | Tested by |
 |---|---|---|
-| A program or web page reading Atlas without signing in | Every page and API call needs a signed-in device: an HttpOnly, SameSite=Strict cookie, stored hashed on the PC | `api_security.py`: locked page, 401 on data, forged cookie |
+| A program or web page reading Atlas without signing in | Every page and API call needs a signed-in device: an HttpOnly, SameSite=Lax cookie (Lax so a home-screen app opens signed in), stored hashed on the PC | `api_security.py`: locked page, 401 on data, forged cookie |
 | DNS rebinding (a website pointing its own name at 127.0.0.1) | Requests must name Atlas's own host (127.0.0.1, localhost, or this PC's Tailscale name); anything else gets 421 | forged Host header |
-| Cross-site requests (CSRF) | Changes need the `X-Atlas` header, which other sites can't send without a preflight Atlas refuses, plus an Origin check and SameSite=Strict | missing header, foreign Origin |
+| Cross-site requests (CSRF) | Every change to files, tags, places or devices is a POST that needs the `X-Atlas` header, which other sites can't send without a preflight Atlas refuses, plus an Origin check. The one exception is signing out, a plain link: a hostile page could sign you out, nothing more | missing header, foreign Origin |
 | Reaching files outside your folders | Paths are resolved and must sit under `read_write` or `read_only`; network paths, `\\?\`, `..` escapes and NTFS streams are refused | 9 path cases |
 | Changing protected folders | `read_only` is enforced on the PC for every write | mkdir, paste into each read-only folder |
 | Malicious files opened in Atlas | HTML, SVG, JS and XML are served as `text/plain`; every file response carries `Content-Security-Policy: sandbox` and `nosniff` | HTML file check |
@@ -26,7 +26,7 @@ Atlas listens on 127.0.0.1 only. Your phone reaches it through `tailscale serve`
 ## What remains your responsibility
 
 - **Programs already on your PC** run as you and can read the Start menu link. They could already read your files directly, so Atlas gives them nothing new. Keep the PC clean.
-- **A lost or unlocked phone** that was paired can use Atlas for up to 180 days. Keep a screen lock; if a phone is lost, sign it out in Atlas (Devices) and remove it from Tailscale.
+- **A lost or unlocked phone** that was paired can use Atlas for up to 180 days after its last use. Keep a screen lock, use the red Lock button when you hand the phone to someone, and if a phone is lost, sign it out in Atlas (Devices) and remove it from Tailscale.
 - **Every device in your tailnet** can reach Atlas's sign-in page (not your data). Keep the tailnet to your own devices, or add a Tailscale access rule that allows only your phones to reach the PC on port 443.
 - **Certificate logs.** Turning on Tailscale HTTPS lists your PC's tailnet name in public certificate transparency logs. The name can't be reached from the internet.
 

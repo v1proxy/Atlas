@@ -59,7 +59,7 @@ def main():
     for _ in range(3): time.sleep(0)   # throttle window is per minute; the next login must still pass
     s, h, b = req("GET", q("/login", key=key))
     ck = h.get("Set-Cookie", "")
-    check("PC sign-in sets an HttpOnly, SameSite=Strict cookie", s == 200 and "HttpOnly" in ck and "SameSite=Strict" in ck, ck[:60])
+    check("PC sign-in sets an HttpOnly, SameSite=Lax cookie", s == 200 and "HttpOnly" in ck and "SameSite=Lax" in ck, ck[:60])
     cookie = ck.split(";")[0]
     s, h, b = req("GET", "/", cookie=cookie)
     check("Page opens after sign-in", s == 200 and b"<title>Atlas</title>" in b, s)

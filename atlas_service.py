@@ -112,9 +112,10 @@ main{max-width:30rem;padding:24px}h1{font-weight:300;font-size:28px;margin:0 0 1
 form{display:grid;gap:10px;margin-top:20px}input{font:16px monospace;padding:12px;background:#000;color:#F3F1EC;border:1px solid #45474D;border-radius:4px}
 button{font:16px Arial,sans-serif;padding:12px;background:#F3F1EC;color:#000;border:0;border-radius:4px}</style>
 <main><h1>Atlas is locked</h1><p>{msg}</p>
-<form action="/pair" method="get"><label for="code">Pairing code from Atlas on the PC</label>
+<form action="/pair" method="get" onsubmit="event.preventDefault();location.replace('/pair?code='+encodeURIComponent(this.code.value.trim()))"><label for="code">Pairing code from Atlas on the PC</label>
 <input id="code" name="code" autocomplete="one-time-code" autocapitalize="off" autocorrect="off" spellcheck="false" required>
-<button type="submit">Unlock this device</button></form></main>"""
+<button type="submit">Unlock this device</button></form></main>
+<script>try{if(!sessionStorage.getItem("atlasRetry")){sessionStorage.setItem("atlasRetry","1");fetch("/api/whoami",{credentials:"same-origin",cache:"no-store"}).then(function(r){if(r.ok)location.replace("/")})}}catch(e){}</script>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -142,7 +143,8 @@ class Handler(BaseHTTPRequestHandler):
     def _enter(self, tok):
         """Set the sign-in cookie and step into Atlas with a same-site hop, so SameSite=Strict cookies are sent
         even when the link came from another app (the camera, a QR scanner, a desktop shortcut)."""
-        page = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Atlas</title><body style="background:#000">'
+        page = ('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Atlas</title>'
+                '<body style="background:#000"><script>location.replace("/")</script>')   # replace: Back never returns here
         self._send(200, page, "text/html; charset=utf-8", {"Set-Cookie": self._cookie(tok)} if tok else None)
 
     def _locked(self, msg, code=401):
@@ -157,7 +159,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cookie(self, tok):
         secure = "" if self._local() else "; Secure"
-        return f"atlas={tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=15552000{secure}"
+        return f"atlas={tok}; HttpOnly; SameSite=Lax; Path=/; Max-Age=15552000{secure}"
+
+    def _renew(self):
+        """The same sign-in, sent back with today's settings and a fresh 180 days."""
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "atlas" and v: return {"Set-Cookie": self._cookie(v)}
+        return None
 
     def _static(self, rel):
         rp = os.path.realpath(os.path.join(STATIC, rel))
@@ -218,6 +227,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._enter(sec.new_device("This PC, " + browser_label(self.headers.get("User-Agent")), "pc"))
             sec.failed(); return self._locked("That sign-in link is not valid.", 403)
         if p == "/pair":
+            if sec.device(self.headers.get("Cookie")): return self._enter(None)   # already unlocked: never spend a code again
             if sec.throttled(): return self._locked("Too many attempts. Wait a minute.", 429)
             if sec.use_pair_code(q.get("code", "")):
                 return self._enter(sec.new_device(device_label(self.headers.get("User-Agent")), "phone"))
@@ -230,13 +240,13 @@ class Handler(BaseHTTPRequestHandler):
         self.dev = dev
         try:
             if p in ("/", "/index.html"):
-                return self._send(200, open(os.path.join(HERE, "map.html"), "rb").read(), "text/html; charset=utf-8")
+                return self._send(200, open(os.path.join(HERE, "map.html"), "rb").read(), "text/html; charset=utf-8", self._renew())
             if p == "/map.json":
                 return self._send(200, open(MAP, "rb").read() if os.path.exists(MAP) else b"{}")
             if p == "/settings":
                 return self._send(200, open(SET, "rb").read() if os.path.exists(SET) else b'{"tone":"red"}')
             if p == "/status": return self._json(200, STATUS)
-            if p == "/api/whoami": return self._json(200, {"name": dev["name"], "kind": dev["kind"], "local": self._local(), "tailscale": sec.ts_name()})
+            if p == "/api/whoami": return self._json(200, {"name": dev["name"], "kind": dev["kind"], "local": self._local(), "tailscale": sec.ts_name()}, self._renew())
             if p == "/api/ls": return self._json(200, fo.listdir(q.get("path", "")))
             if p == "/api/text": return self._json(200, fo.text(q.get("path", "")))
             if p == "/api/file":
@@ -252,8 +262,9 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/devices":
                 return self._json(200, {"devices": [{**d, "me": d["id"] == dev["id"]} for d in sec.devices()], "local": self._local()})
             if p == "/logout":
-                sec.revoke(dev["id"])
-                return self._send(302, "", "text/plain", {"Location": "/", "Set-Cookie": "atlas=; Max-Age=0; Path=/"})
+                sec.revoke(dev["id"]); fo.log(f"{dev['name']}#{dev['id']}", "lock", dev["id"])
+                page = '<!doctype html><meta charset="utf-8"><title>Atlas</title><body style="background:#000"><script>location.replace("/")</script>'
+                return self._send(200, page, "text/html; charset=utf-8", {"Set-Cookie": "atlas=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict"})
             self._json(404, {"error": "not found"})
         except sec.Denied as e:
             self._json(403, {"error": str(e)})
