@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>Atlas</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/app/files.css?v=7">
+<style>
+/* IBM Plex, served from this PC (SIL Open Font License, static/vendor/fonts/OFL.txt): nothing is fetched from the internet. */
+@font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Light.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Regular.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500 700; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Medium.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url(/static/vendor/fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500 700; font-display: swap; src: url(/static/vendor/fonts/IBMPlexMono-Medium.woff2) format("woff2"); }
+/* Layout: one territory per state, regions per category, a tile per folder; area is size, shade is how recently it changed. */
+:root {
+  --bg: #000000; --surface: #000000; --surface-2: #161616; --ink: #F3F1EC; --dim: #8E9096; --line: #45474D;
+  --h: 27; --c: .17;
+  --r1: oklch(.44 calc(var(--c) * .8) var(--h)); --r2: oklch(.53 var(--c) var(--h));
+  --r3: oklch(.63 var(--c) var(--h)); --r4: oklch(.73 calc(var(--c) * .75) var(--h));
+  --t1: #ffffff; --t2: #ffffff; --t3: #121212; --t4: #121212;
+  --hatch: rgba(255, 255, 255, .22); --warn: #FAC4C6; --ok: #8E9096;
+  --f-display: "IBM Plex Sans", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000; --surface: #000000; --surface-2: #161616; --ink: #F3F1EC; --dim: #8E9096; --line: #45474D;
+    --r1: oklch(.44 calc(var(--c) * .8) var(--h)); --r2: oklch(.53 var(--c) var(--h));
+    --r3: oklch(.63 var(--c) var(--h)); --r4: oklch(.73 calc(var(--c) * .75) var(--h));
+    --t1: #ffffff; --t2: #ffffff; --t3: #121212; --t4: #121212;
+    --hatch: rgba(255, 255, 255, .22); --warn: #FAC4C6; --ok: #8E9096;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); display: grid; grid-template-rows: auto auto 1fr; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 20px 10px; border-bottom: 1px solid var(--line); }
+h1 { font: 700 26px/1 var(--f-display); margin: 0; letter-spacing: -.01em; }
+.meta { font: 12px/1.4 var(--f-mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+.meta b { color: var(--ink); font-weight: 500; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--surface); }
+.seg button { font: 500 13px/1 var(--f-body); color: var(--dim); background: none; border: 0; padding: 8px 11px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--ink); }
+input[type=search] { font: 14px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; width: 220px; }
+.btn { font: 600 13px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn:disabled { opacity: .5; cursor: default; }
+.tones { display: inline-flex; gap: 6px; align-items: center; padding: 0 4px; }
+.tones button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); padding: 0; cursor: pointer; }
+.tones button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 2px var(--surface); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--r3); outline-offset: 2px; }
+.sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; padding: 8px 20px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.crumbs button { font: 600 13px var(--f-body); color: var(--ink); background: none; border: 0; padding: 2px 4px; cursor: pointer; border-radius: 3px; }
+.crumbs button:hover { background: var(--surface-2); }
+.crumbs span { color: var(--dim); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-left: auto; }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+.legend .hatch { background: var(--r3); background-image: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 6px); }
+.legend .off { background: var(--surface); border: 1px dashed var(--dim); }
+.body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
+#map { position: relative; margin: 12px 0 16px 20px; min-height: 520px; }
+.region { position: absolute; pointer-events: none; }
+.region .h { position: absolute; left: 0; right: 0; top: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; pointer-events: auto; cursor: zoom-in; border: 0; background: none; text-align: left; padding: 0 2px; color: var(--ink); }
+.region.state .h { font: 700 18px/26px var(--f-display); }
+.region.state .h small { font: 12px var(--f-mono); color: var(--dim); margin-left: 8px; }
+.region.cat { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.region.cat .h { font: 600 12px/18px var(--f-display); letter-spacing: .03em; color: var(--dim); padding: 0 6px; }
+.region.tree { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.region.tree .h { font: 700 13px/18px var(--f-display); letter-spacing: .03em; color: var(--ink); padding: 0 6px; }
+.bandh { position: absolute; left: 0; top: 0; right: 0; font: 700 18px/26px var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bandh small { font: 12px var(--f-mono); color: var(--dim); margin-left: 8px; }
+.tile { position: absolute; border: 0; border-radius: 3px; padding: 4px 6px; overflow: hidden; text-align: left; cursor: pointer; font: 600 12px/1.25 var(--f-body); display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; }
+.tile.a1 { background-color: var(--r1); color: var(--t1); } .tile.a2 { background-color: var(--r2); color: var(--t2); }
+.tile.a3 { background-color: var(--r3); color: var(--t3); } .tile.a4 { background-color: var(--r4); color: var(--t4); }
+.tile.tree { background-image: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 7px); }
+.tile.off { background: var(--surface); color: var(--dim); outline: 1px dashed var(--dim); outline-offset: -1px; }
+.tile .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .v { font: 400 11px/1.2 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; }
+.tile:hover { box-shadow: inset 0 0 0 2px var(--ink); }
+.tile.sel { box-shadow: inset 0 0 0 3px var(--ink); z-index: 2; }
+.tile.dim { opacity: .2; }
+.tip { position: fixed; z-index: 20; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px; max-width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.tip b { display: block; }
+.tip .m { font: 12px var(--f-mono); color: var(--dim); }
+aside { border-left: 1px solid var(--line); padding: 16px 20px; overflow: auto; display: grid; align-content: start; gap: 14px; background: var(--surface); }
+aside h2 { font: 700 22px/1.15 var(--f-display); margin: 0; overflow-wrap: anywhere; }
+aside .empty { color: var(--dim); }
+.chip { font: 600 11px/1 var(--f-body); letter-spacing: .05em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; background: var(--surface-2); color: var(--ink); width: fit-content; }
+.why { font-size: 14px; }
+.why small { display: block; color: var(--dim); font-size: 12px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+dt { color: var(--dim); } dd { margin: 0; font-variant-numeric: tabular-nums; }
+.path { font: 12px/1.4 var(--f-mono); color: var(--dim); overflow-wrap: anywhere; user-select: all; }
+.path b { display: block; font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink); margin-bottom: 2px; user-select: none; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.move { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
+.move label { display: grid; gap: 3px; font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+.move select { font: 14px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.note { font-size: 13px; color: var(--dim); }
+.note.err { color: var(--warn); } .note.ok { color: var(--ok); }
+.banner { margin: 16px 20px; padding: 14px 16px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; }
+@media (max-width: 900px) {
+  .body { grid-template-columns: minmax(0, 1fr); }
+  #map { margin: 12px 12px 12px; }
+  aside { border-left: 0; border-top: 1px solid var(--line); }
+  .tools { margin-left: 0; } input[type=search] { width: 100%; }
+  .legend { margin-left: 0; }
+}
+@media (prefers-reduced-motion: no-preference) { .tile { transition: opacity .15s; } }
+.crumbs[hidden] { display: none; }
+#map.scroll { overflow: auto; }
+.treesvg { display: block; }
+.treesvg .link { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.treesvg .node { cursor: pointer; outline: none; }
+.treesvg circle { stroke-width: 2; }
+.treesvg circle.g { fill: var(--bg); stroke: var(--r3); }
+.treesvg circle.g.closed { fill: var(--r3); }
+.treesvg circle.a1 { fill: var(--r1); stroke: var(--r1); } .treesvg circle.a2 { fill: var(--r2); stroke: var(--r2); }
+.treesvg circle.a3 { fill: var(--r3); stroke: var(--r3); } .treesvg circle.a4 { fill: var(--r4); stroke: var(--r4); }
+.treesvg circle.closed:not(.g) { stroke: var(--ink); }
+.treesvg text { font: 500 13px var(--f-body); fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+.treesvg tspan.m { font: 400 11px var(--f-mono); fill: var(--dim); }
+.treesvg .node.root text, .treesvg .node.state text { font: 700 16px var(--f-display); }
+.treesvg .node.cat text { font: 600 13px var(--f-display); }
+.treesvg .node.sel circle, .treesvg .node:focus-visible circle { stroke: var(--ink); stroke-width: 3; }
+.treesvg .node.hit text { text-decoration: underline; }
+.list { display: grid; min-width: 0; }
+.lrow { display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 76px; gap: 12px; align-items: center; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: 400 13px var(--f-body); text-align: left; cursor: pointer; width: 100%; }
+.lrow:hover { background: var(--surface-2); }
+.lrow.g1 { font: 700 16px var(--f-display); padding-block: 10px; }
+.lrow.g2 { font: 600 14px var(--f-display); }
+.lrow .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lrow .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow .car { width: 12px; flex: none; color: var(--dim); }
+.lrow .num { font: 12px var(--f-mono); color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+.lrow .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.lrow .sw.a1 { background: var(--r1); } .lrow .sw.a2 { background: var(--r2); } .lrow .sw.a3 { background: var(--r3); } .lrow .sw.a4 { background: var(--r4); }
+.lrow .sw.tree { background-image: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 5px); }
+.lrow.sel { background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--ink); }
+.lrow.hit .t { text-decoration: underline; }
+.lhead { font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--dim); cursor: default; }
+.lhead:hover { background: none; }
+@media (max-width: 600px) { .lrow { grid-template-columns: minmax(0, 1fr) 64px 72px; } .lrow .c4 { display: none; } }
+/* Atlas identity (after ARX Space): Plex Sans Light titles, never bold; labels, eyebrows and captions in Plex Mono caps */
+h1 { font: 300 28px/1 var(--f-body); letter-spacing: 0; }
+.region.state .h, aside h2, .treesvg .node.root text, .treesvg .node.state text, .lrow.g1 { font-family: var(--f-body); font-weight: 300; letter-spacing: 0; }
+.region.state .h { font-size: 20px; }
+.region.cat .h, .region.tree .h, .treesvg .node.cat text, .lrow.g2, .chip, .path b, .move label, .lhead, .legend > span:first-child, dt, .tip .m {
+  font-family: var(--f-mono); font-weight: 400; text-transform: uppercase; letter-spacing: .06em; }
+.region.cat .h, .region.tree .h, .treesvg .node.cat text { font-size: 11px; }
+.lrow.g2 { font-size: 12px; } dt { font-size: 11px; }
+.tile, .seg button, .crumbs button, .btn, .lrow { font-weight: 400; }
+.btn.primary { font-weight: 500; }
+.tonebox { position: relative; }
+.tonebtn { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); display: grid; place-items: center; cursor: pointer; padding: 0; }
+.tonebtn i { width: 16px; height: 16px; border-radius: 50%; background: var(--r3); display: block; }
+.tonebox .tones { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(4, 22px); gap: 10px; }
+.tonebox .tones[hidden] { display: none; }
+@media (max-width: 900px) { .tonebox .tones { right: auto; left: 0; } }
+/* One screen, like an app: the header stays, the map and lists scroll inside; on a phone details slide up as a sheet. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+body { height: 100dvh; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); padding-top: env(safe-area-inset-top, 0px); }
+.body { min-height: 0; grid-template-rows: minmax(0, 1fr); grid-row: 3; }
+header { grid-row: 1; } .sub { grid-row: 2; }
+#map { min-height: 0; }
+#map.zoomable { overflow: hidden; touch-action: none; cursor: grab; border: 1px solid var(--line); }
+#map.zoomable svg { display: block; touch-action: none; }
+.tzbar { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; z-index: 5; }
+.tzbar button { min-width: 40px; height: 40px; font: 500 16px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+aside { min-height: 0; display: block; }
+#panel { display: grid; align-content: start; gap: 14px; }
+.sheetx { display: none; }
+@media (max-width: 900px) {
+  header { padding: 8px 12px; gap: 6px 10px; }
+  h1 { font-size: 20px; }
+  .meta { flex: 1 1 0; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tools { width: 100%; gap: 6px; }
+  #q { order: -1; flex: 1 1 100%; width: auto; }
+  .seg button { padding: 7px 8px; font-size: 12px; }
+  #rescan { display: none; }
+  header { position: relative; }
+  #devices { position: absolute; top: 6px; right: 12px; padding: 3px 10px; font-size: 12px; }
+  .sub:has(.crumbs[hidden]) { display: none; }
+  .meta { padding-right: 84px; }
+  .sub { padding: 4px 12px; }
+  .legend { display: none; }
+  .crumbs { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
+  #map { margin: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); }
+  aside { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 75dvh; overflow: auto; border: 0; border-top: 1px solid var(--line);
+          padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateY(105%); transition: transform .2s ease; box-shadow: 0 -10px 30px rgba(0,0,0,.7); }
+  body.sheet aside { transform: none; }
+  .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 500 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Atlas</h1>
+  <div class="meta" id="meta">Loading the map</div>
+  <div class="tools">
+    <div class="seg" id="views" role="group" aria-label="View"><button type="button" data-v="treemap" aria-pressed="true">Treemap</button><button type="button" data-v="tree" aria-pressed="false">Tree</button><button type="button" data-v="list" aria-pressed="false">List</button></div>
+    <div class="seg" id="metric" role="group" aria-label="Sized by">
+      <button type="button" data-m="gb" aria-pressed="true">Size</button>
+      <button type="button" data-m="files" aria-pressed="false">Files</button>
+      <button type="button" data-m="eq" aria-pressed="false">Every folder</button>
+    </div>
+    <input type="search" id="q" placeholder="Find a folder or file" aria-label="Find a folder or file" autocomplete="off">
+    <div class="tonebox">
+      <button type="button" class="tonebtn" id="tonebtn" aria-haspopup="true" aria-expanded="false" aria-controls="tones" title="Color"><i></i></button>
+      <div class="tones" id="tones" role="group" aria-label="Color" hidden></div>
+    </div>
+    <button type="button" class="btn" id="rescan">Rescan now</button>
+    <button type="button" class="btn" id="devices">Devices</button>
+  </div>
+</header>
+<div class="sub">
+  <nav class="crumbs" id="crumbs" aria-label="Where you are"></nav>
+  <div class="legend" aria-label="Legend">
+    <span>Last change:</span>
+    <span><i class="a" style="background:var(--r4)"></i>last 30 days</span>
+    <span><i style="background:var(--r3)"></i>this year</span>
+    <span><i style="background:var(--r2)"></i>1 to 2 years</span>
+    <span><i style="background:var(--r1)"></i>older</span>
+    <span id="lg-tree" hidden><i class="hatch"></i><b></b></span>
+    <span><i class="off"></i>source offline</span>
+  </div>
+</div>
+<div class="body">
+  <div id="map" role="application" aria-label="Map of every folder"></div>
+  <aside id="sheet"><button type="button" class="sheetx" id="sheetx" aria-label="Close">Close</button><div id="panel"><p class="empty">Tap a tile to see what it is, why it sits there, and to open it. Tap a heading to zoom in.</p></div></aside>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script src="/static/app/files.js?v=8"></script>
+<script>
+const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtN = n => n.toLocaleString("en-US");
+const fmtGB = g => g < 0.01 ? "<0.01 GB" : g >= 1000 ? (g / 1000).toFixed(2) + " TB" : (g >= 100 ? g.toFixed(0) : g.toFixed(2)) + " GB";
+let SRC = {}, UI = {};
+const HOW = { auto: "Decided by the software", fixed: "Fixed place", you: "Moved by you" };
+
+function age(f) {
+  if (!f.newest) return 1;
+  const d = (Date.now() - new Date(f.newest + "T12:00:00")) / 864e5;
+  return d <= 30 ? 4 : d <= 365 ? 3 : d <= 730 ? 2 : 1;
+}
+function val(f) { return S.metric === "eq" ? 1 : S.metric === "gb" ? f.gb : f.files; }
+
+function squarify(vals, x, y, w, h) {
+  const out = new Array(vals.length); const total = vals.reduce((a, b) => a + b, 0);
+  if (total <= 0 || w <= 0 || h <= 0) return vals.map(() => ({ x, y, w: 0, h: 0 }));
+  const sc = (w * h) / total, A = vals.map(v => v * sc);
+  let i = 0, row = [];
+  const worst = (r, side) => { const s = r.reduce((a, b) => a + b, 0), mx = Math.max(...r), mn = Math.min(...r); return Math.max(side * side * mx / (s * s), (s * s) / (side * side * mn)); };
+  const place = () => {
+    const s = row.reduce((a, b) => a + A[b], 0);
+    if (w >= h) { const cw = s / h; let yy = y; for (const k of row) { const hh = A[k] / cw; out[k] = { x, y: yy, w: cw, h: hh }; yy += hh; } x += cw; w -= cw; }
+    else { const rh = s / w; let xx = x; for (const k of row) { const ww = A[k] / rh; out[k] = { x: xx, y, w: ww, h: rh }; xx += ww; } y += rh; h -= rh; }
+    row = [];
+  };
+  while (i < A.length) {
+    const side = Math.min(w, h), cur = row.map(k => A[k]);
+    if (!row.length || worst(cur.concat(A[i]), side) <= worst(cur, side)) { row.push(i); i++; } else place();
+  }
+  if (row.length) place();
+  return out;
+}
+
+function cval(c) { return S.metric === "eq" ? 1 : S.metric === "gb" ? c.gb : c.files; }
+function treeNode(f, label, v) {
+  const ch = f.children || [];
+  if (!ch.length) return { leaf: true, f, v };
+  const tot = ch.reduce((a, c) => a + cval(c), 0), fl = S.metric === "eq" ? 0 : tot * 0.01;
+  const kids = ch.map(c => ({ leaf: true, f, child: c, v: Math.max(cval(c), fl, 1e-9) }));
+  return { type: "tree", label, path: [f.state, f.category], f, kids, v, n: kids.length };
+}
+function hierarchy(skipTree) {
+  const fs = S.data.folders.filter(f => f.state !== "skip" && !(skipTree && f.kind === "tree"));
+  const total = fs.reduce((a, f) => a + val(f), 0), floor = S.metric === "eq" ? 0 : total * 0.0006;
+  const states = [];
+  for (const st of S.data.states) {
+    const cats = {};
+    for (const f of fs.filter(f => f.state === st)) {
+      const v = Math.max(val(f), floor, 1e-9);
+      (cats[f.category] ||= []).push(f.kind === "tree" ? treeNode(f, UI.tree_label, v) : { leaf: true, f, v });
+    }
+    const kids = Object.entries(cats).map(([c, list]) => ({ type: "cat", label: c, path: [st, c], kids: list, v: list.reduce((a, b) => a + b.v, 0), n: list.length }));
+    if (kids.length) states.push({ type: "state", label: st, path: [st], kids, v: kids.reduce((a, b) => a + b.v, 0), n: kids.reduce((a, b) => a + b.n, 0) });
+  }
+  let root = { type: "root", kids: states };
+  if (S.zoom.length >= 1) root = states.find(s => s.label === S.zoom[0]) || root;
+  if (S.zoom.length === 2 && root.kids) root = root.kids.find(c => c.label === S.zoom[1]) || root;
+  return root;
+}
+
+function renderTreemap() {
+  const map = $("#map"); map.innerHTML = "";
+  const W = map.clientWidth, H = map.clientHeight;
+  const root = hierarchy(false);
+  const draw = (node, x, y, w, h) => {
+    if (node.leaf) return tile(node.f, x, y, w, h, node.child);
+    let top = 0, pad = 0;
+    if (node.type === "state") { top = 28; }
+    if (node.type === "cat" || node.type === "tree") { pad = 3; top = (w >= 80 && h >= 46) ? 18 : 0; }
+    if (node.type !== "root") {
+      const r = document.createElement("div");
+      r.className = "region " + node.type; Object.assign(r.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+      if (top) {
+        const hb = document.createElement("button"); hb.type = "button"; hb.className = "h";
+        hb.innerHTML = node.type === "state" ? `${esc(node.label)}<small>${node.n} folders</small>` : esc(node.label);
+        hb.title = "Zoom into " + node.label; hb.onclick = () => { S.zoom = node.path; render(); crumbs(); };
+        r.appendChild(hb);
+      }
+      map.appendChild(r);
+    }
+    const kids = [...node.kids].sort((a, b) => b.v - a.v);
+    const inner = { x: x + pad, y: y + top + pad, w: w - 2 * pad, h: h - top - 2 * pad };
+    const gap = node.type === "root" ? 10 : node.type === "state" ? 4 : 0;
+    const rects = squarify(kids.map(k => k.v), inner.x, inner.y, inner.w, inner.h);
+    kids.forEach((k, i) => { const q = rects[i]; draw(k, q.x + gap / 2, q.y + gap / 2, Math.max(0, q.w - gap), Math.max(0, q.h - gap)); });
+  };
+  draw(root, 0, 0, W, H);
+  applySearch();
+  if (S.sel) { const t = document.querySelector(`.tile[data-id="${CSS.escape(S.sel)}"]`); if (t) t.classList.add("sel"); }
+}
+
+function tile(f, x, y, w, h, c) {
+  if (w < 1 || h < 1) return;
+  const t = document.createElement("button");
+  t.type = "button"; t.dataset.id = c ? f.id + "::" + c.name : f.id;
+  t.className = "tile a" + age(c || f) + (f.kind === "tree" ? " tree" : "") + (f.offline ? " off" : "");
+  Object.assign(t.style, { left: (x + 1) + "px", top: (y + 1) + "px", width: Math.max(0, w - 2) + "px", height: Math.max(0, h - 2) + "px" });
+  const nm = c ? c.name : f.kind === "tree" ? `${UI.tree_label}, ${f.state}` : f.name, o = c || f;
+  t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
+  if (w >= 60 && h >= 26) {
+    t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${S.metric === "files" ? fmtN(o.files) + " files" : fmtGB(o.gb)}</span>` : "");
+  }
+  t.onclick = () => select(f.id, c ? c.name : null);
+  t.onpointermove = e => tip(e, f, c);
+  t.onpointerleave = () => { $("#tip").hidden = true; };
+  $("#map").appendChild(t);
+}
+
+function tip(e, f, c) {
+  const el = $("#tip"), o = c || f;
+  const nm = c ? c.name : f.kind === "tree" ? UI.tree_label + ", " + f.state : f.name;
+  el.innerHTML = `<b>${esc(nm)}</b><span class="m">${fmtN(o.files)} files · ${fmtGB(o.gb)} · changed ${esc((o.newest || "").slice(0, 7))}</span><br>${esc(f.state)} · ${esc(c ? UI.tree_label : f.category)}`;
+  el.hidden = false;
+  const x = Math.min(e.clientX + 14, window.innerWidth - el.offsetWidth - 8), y = Math.min(e.clientY + 14, window.innerHeight - el.offsetHeight - 8);
+  el.style.left = x + "px"; el.style.top = y + "px";
+}
+
+// Tree and List views: the same folders as the treemap, as a branching tree and as an indented list.
+function model() {
+  const fs = S.data.folders.filter(f => f.state !== "skip");
+  const root = { key: "Atlas", label: "Atlas", type: "root", kids: [] };
+  for (const st of S.data.states) {
+    const sn = { key: st, label: st, type: "state", kids: [] }, cats = {};
+    for (const f of fs.filter(f => f.state === st)) (cats[f.category] ||= []).push(f);
+    for (const [c, list] of Object.entries(cats)) {
+      sn.kids.push({ key: st + "/" + c, label: c, type: "cat", kids: list.map(f => ({
+        key: f.id, label: f.kind === "tree" ? UI.tree_label : f.name, type: "folder", f,
+        kids: (f.children || []).map(ch => ({ key: f.id + "::" + ch.name, label: ch.name, type: "child", f, c: ch, kids: [] })) })) });
+    }
+    if (sn.kids.length) root.kids.push(sn);
+  }
+  const agg = n => {
+    n.kids.forEach(agg);
+    const o = n.c || (n.type === "folder" ? n.f : null);
+    if (o) { n.files = o.files; n.gb = o.gb; n.newest = o.newest || ""; }
+    else {
+      n.files = n.kids.reduce((a, k) => a + k.files, 0); n.gb = n.kids.reduce((a, k) => a + k.gb, 0);
+      n.newest = n.kids.reduce((a, k) => (k.newest > a ? k.newest : a), "");
+    }
+    n.v = S.metric === "eq" ? Math.max(1, n.kids.length) : S.metric === "gb" ? n.gb : n.files;
+    if (n.type !== "root") n.kids.sort((a, b) => b.v - a.v);
+  };
+  agg(root);
+  return root;
+}
+
+function visibleModel() {
+  const root = model(), q = (S.q || "").trim().toLowerCase();
+  if (!q) return { root, isOpen: n => S.open.has(n.key) };
+  const hit = n => (n.label + " " + (n.f ? n.f.source + " " + n.f.category : "")).toLowerCase().includes(q);
+  const prune = n => {
+    n.kids = n.kids.map(prune).filter(Boolean);
+    n.match = (n.type === "folder" || n.type === "child") && hit(n);
+    return n.kids.length || n.match || n.type === "root" ? n : null;
+  };
+  prune(root);
+  return { root, isOpen: () => true };
+}
+
+function markSel() {
+  document.querySelectorAll("#map .sel").forEach(e => e.classList.remove("sel"));
+  if (!S.sel) return;
+  const t = document.querySelector(`#map [data-id="${CSS.escape(S.sel)}"]`);
+  if (t) t.classList.add("sel");
+}
+
+function toggleOrSelect(n) {
+  const leaf = n.type === "folder" || n.type === "child";
+  if (n.kids.length) { if (S.open.has(n.key)) S.open.delete(n.key); else S.open.add(n.key); }
+  if (leaf && typeof select === "function") { const [i, ch] = n.key.split("::"); select(i, ch || null); }
+  if (n.kids.length) render();
+}
+
+function renderTree() {
+  const map = $("#map"), { root, isOpen } = visibleModel();
+  const narrow = map.clientWidth < 700, RH = 28, CW = narrow ? 180 : 250, L = narrow ? 22 : 30, R = 7, max = narrow ? 20 : 30;
+  let row = 0, maxd = 0;
+  const lay = (n, d) => {
+    n.d = d; maxd = Math.max(maxd, d); n.open = n.kids.length > 0 && isOpen(n);
+    if (n.open) { n.kids.forEach(k => lay(k, d + 1)); n.y = (n.kids[0].y + n.kids[n.kids.length - 1].y) / 2; }
+    else n.y = row++ * RH + RH / 2 + 6;
+  };
+  lay(root, 0);
+  const ns = "http://www.w3.org/2000/svg", X = n => L + n.d * CW;
+  const svg = document.createElementNS(ns, "svg");
+  const W0 = L + maxd * CW + (narrow ? 200 : 300), H0 = row * RH + 16;
+  svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
+  svg.setAttribute("class", "treesvg"); svg.setAttribute("aria-label", "Tree of every folder");
+  const zg = document.createElementNS(ns, "g"), lg = document.createElementNS(ns, "g"), ng = document.createElementNS(ns, "g");
+  zg.append(lg, ng); svg.append(zg);
+  const draw = n => {
+    if (n.open) for (const k of n.kids) {
+      const p = document.createElementNS(ns, "path"), x1 = X(n) + R, x2 = X(k) - R, mx = (x1 + x2) / 2;
+      p.setAttribute("d", `M${x1},${n.y} C${mx},${n.y} ${mx},${k.y} ${x2},${k.y}`); p.setAttribute("class", "link");
+      lg.appendChild(p); draw(k);
+    }
+    const leaf = n.type === "folder" || n.type === "child", closed = n.kids.length > 0 && !n.open;
+    const g = document.createElementNS(ns, "g");
+    g.setAttribute("class", "node " + n.type + (n.match ? " hit" : ""));
+    g.setAttribute("transform", `translate(${X(n)},${n.y})`); g.setAttribute("tabindex", "0"); g.setAttribute("role", "button");
+    if (leaf) g.dataset.id = n.key;
+    const c = document.createElementNS(ns, "circle");
+    c.setAttribute("r", leaf ? 5.5 : R);
+    c.setAttribute("class", (leaf ? "a" + age(n.c || n.f) : "g") + (closed ? " closed" : ""));
+    const t = document.createElementNS(ns, "text"); t.setAttribute("x", 12); t.setAttribute("dy", "0.35em");
+    const lab = n.label.length > max ? n.label.slice(0, max - 1) + "…" : n.label;
+    const num = S.metric === "files" ? fmtN(n.files) + " files" : fmtGB(n.gb);
+    t.innerHTML = `${esc(lab)}<tspan class="m" dx="8">${esc(num)}</tspan>`;
+    const ti = document.createElementNS(ns, "title"); ti.textContent = n.label + (closed ? " (tap to open)" : "");
+    g.append(ti, c, t);
+    g.onclick = () => toggleOrSelect(n);
+    g.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleOrSelect(n); } };
+    ng.appendChild(g);
+  };
+  draw(root);
+  map.appendChild(svg);
+  treeZoom(svg, zg, W0, H0);
+}
+
+// Tree view: drag to move, pinch or wheel to zoom. Zooming out stops when the whole structure is on screen.
+function treeZoom(svg, g, W0, H0) {
+  g.removeAttribute("transform");
+  const bb = g.getBBox(); W0 = Math.max(W0, bb.x + bb.width + 16); H0 = Math.max(H0, bb.y + bb.height + 8);   // the real size, long labels included
+  const map = $("#map"), vw = map.clientWidth, vh = map.clientHeight, fit = Math.min(vw / W0, vh / H0, 1), MAX = 3;
+  const T = S.tz || (S.tz = { k: fit, x: 0, y: 0 });
+  const clamp = () => {
+    T.k = Math.min(MAX, Math.max(fit, T.k));
+    const w = W0 * T.k, h = H0 * T.k;
+    T.x = w <= vw ? 0 : Math.min(0, Math.max(vw - w, T.x));
+    T.y = h <= vh ? 0 : Math.min(0, Math.max(vh - h, T.y));
+    g.setAttribute("transform", `translate(${T.x},${T.y}) scale(${T.k})`);
+  };
+  const zoomAt = (k, cx, cy) => { k = Math.min(MAX, Math.max(fit, k)); T.x = cx - (cx - T.x) * k / T.k; T.y = cy - (cy - T.y) * k / T.k; T.k = k; clamp(); };
+  clamp();
+  const pts = new Map(); let pinch = null, moved = 0;
+  const at = e => { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  svg.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; });
+  svg.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return;
+    const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
+    if (pts.size === 1) { T.x += p1[0] - p0[0]; T.y += p1[1] - p0[1]; moved += Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]); clamp(); return; }
+    const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) zoomAt(T.k * d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    pinch = d; moved = 99;
+  });
+  const up = e => { pts.delete(e.pointerId); pinch = null; };
+  ["pointerup", "pointercancel", "pointerleave"].forEach(n => svg.addEventListener(n, up));
+  svg.addEventListener("click", e => { if (moved > 8) { e.stopPropagation(); e.preventDefault(); } }, true);
+  svg.addEventListener("wheel", e => { e.preventDefault(); const [cx, cy] = at(e); zoomAt(T.k * Math.exp(-e.deltaY * 0.0015), cx, cy); }, { passive: false });
+  const z = document.createElement("div"); z.className = "tzbar";
+  z.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit">All</button>`;
+  z.onclick = e => { const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.z === "fit") { T.k = fit; T.x = 0; T.y = 0; clamp(); } else zoomAt(T.k * (b.dataset.z === "in" ? 1.4 : 1 / 1.4), vw / 2, vh / 2); };
+  map.appendChild(z);
+}
+
+function renderList() {
+  const map = $("#map"), { root, isOpen } = visibleModel();
+  const box = document.createElement("div"); box.className = "list";
+  box.innerHTML = `<div class="lrow lhead"><span>Name</span><span class="num">Files</span><span class="num">Size</span><span class="num c4">Changed</span></div>`;
+  const walk = (n, d) => {
+    for (const k of n.kids) {
+      const leaf = k.type === "folder" || k.type === "child", open = k.kids.length > 0 && isOpen(k);
+      const r = document.createElement("button"); r.type = "button";
+      r.className = "lrow" + (k.type === "state" ? " g1" : k.type === "cat" ? " g2" : "") + (k.match ? " hit" : "");
+      if (leaf) r.dataset.id = k.key;
+      const sw = leaf ? `<i class="sw a${age(k.c || k.f)}${k.f.kind === "tree" ? " tree" : ""}"></i>` : "";
+      r.innerHTML = `<span class="nm" style="padding-left:${d * 18}px"><span class="car">${k.kids.length ? (open ? "▾" : "▸") : ""}</span>${sw}<span class="t">${esc(k.label)}</span></span>`
+        + `<span class="num">${fmtN(k.files)}</span><span class="num">${fmtGB(k.gb)}</span><span class="num c4">${esc((k.newest || "").slice(0, 7))}</span>`;
+      r.onclick = () => toggleOrSelect(k);
+      box.appendChild(r);
+      if (open) walk(k, d + 1);
+    }
+  };
+  walk(root, 0);
+  map.appendChild(box);
+}
+
+function render() {
+  if (!S.data && !S.browse) return;
+  const map = $("#map");
+  map.classList.toggle("scroll", !!S.browse || S.view === "list");
+  map.classList.toggle("zoomable", !S.browse && S.view === "tree");
+  map.classList.toggle("treeview", !S.browse && S.view === "tree");
+  const cr = $("#crumbs"); if (cr) cr.hidden = !!S.browse || S.view !== "treemap";
+  document.querySelector(".sub").hidden = !!S.browse;          // the map legend means nothing inside a folder
+  if (!S.browse && S.view === "treemap") renderTreemap();
+  else {
+    map.innerHTML = "";
+    (S.browse ? renderBrowser : S.view === "tree" ? renderTree : renderList)();
+  }
+  if (!S.browse) markSel();
+}
+
+function setView(v, save) {
+  S.view = v; S.browse = false; S.tz = null;
+  document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
+  const cr = $("#crumbs"); if (cr) cr.hidden = v !== "treemap";
+  render();
+  if (save && typeof post === "function") post("/settings", { view: v }).catch(() => {});
+}
+
+function crumbs() {
+  const c = $("#crumbs"); c.innerHTML = "";
+  const b = (label, z) => { const x = document.createElement("button"); x.type = "button"; x.textContent = label; x.onclick = () => { S.zoom = z; render(); crumbs(); }; return x; };
+  c.appendChild(b("Everything", []));
+  S.zoom.forEach((p, i) => { const s = document.createElement("span"); s.textContent = "›"; c.appendChild(s); c.appendChild(b(p, S.zoom.slice(0, i + 1))); });
+}
+
+function applySearch() {
+  const q = S.q.trim().toLowerCase();
+  document.querySelectorAll(".tile").forEach(t => {
+    const [id, child] = t.dataset.id.split("::"), f = S.byId[id];
+    const text = child ? child + " " + UI.tree_label + " " + f.state : f.name + " " + f.source + " " + f.category;
+    t.classList.toggle("dim", !!q && !text.toLowerCase().includes(q));
+  });
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Atlas": "1" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "failed"); return j;
+}
+
+function select(id, child) {
+  S.sel = child ? id + "::" + child : id;
+  markSel();
+  const f = S.byId[id]; const p = $("#panel");
+  if (child) {
+    const c = (f.children || []).find(x => x.name === child); if (!c) return;
+    const top = child.startsWith("(");
+    p.innerHTML = `
+      <div class="chip">${esc(f.state)}</div>
+      <h2>${esc(child)}</h2>
+      <div class="why">${esc(f.category)}<small>${esc(UI.tree_note || "")}</small></div>
+      <dl><dt>Files</dt><dd>${fmtN(c.files)}</dd><dt>Size</dt><dd>${fmtGB(c.gb)}</dd><dt>Last change</dt><dd>${esc(c.newest)}</dd></dl>
+      <div class="path"><b>Original</b>${esc(f.source + (top ? "" : "\\" + child))}</div>
+      ${f.link ? `<div class="path"><b>In Atlas</b>${esc(f.link + (top ? "" : "\\" + child))}</div>` : ""}
+      <div class="row">
+        <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
+        ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
+        <button type="button" class="btn" id="o-src">Open the original</button>
+      </div>
+      <p class="note">${esc(UI.tree_readonly_note || "Read only here.")}</p>
+      <div class="note" id="o-note" hidden></div>`;
+    $("#o-browse").onclick = () => browse(f.source + (top ? "" : "\\" + child));
+    const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
+    const open = what => post("/open", top ? { id, what } : { id, what, child }).then(() => note("Opened in Explorer.", "ok"), e => note("Couldn't open it: " + e.message, "err"));
+    if ($("#o-view")) $("#o-view").onclick = () => open("view");
+    $("#o-src").onclick = () => open("source");
+    return;
+  }
+  const original = f.kind === "loose" ? f.source.slice(0, -7) : f.source;
+  const states = S.data.states.map(s => `<option ${s === f.state ? "selected" : ""}>${esc(s)}</option>`).join("") + `<option value="skip" ${f.state === "skip" ? "selected" : ""}>Leave out</option>`;
+  const cats = S.data.categories.map(c => `<option ${c === f.category ? "selected" : ""}>${esc(c)}</option>`).join("");
+  p.innerHTML = `
+    <div class="chip">${esc(f.state)}</div>
+    <h2>${esc(f.kind === "tree" ? UI.tree_label + ", " + f.state : f.name)}</h2>
+    <div class="why">${esc(f.category)}<small>${esc(HOW[f.how] || "")}: ${esc(f.why)}</small></div>
+    <dl><dt>Files</dt><dd>${fmtN(f.files)}</dd><dt>Size</dt><dd>${fmtGB(f.gb)}</dd><dt>Last change</dt><dd>${esc(f.newest)}</dd>
+      <dt>Copies</dt><dd>${f.dup ? f.dup + "% also exist in a newer place" : "none found"}</dd><dt>Lives in</dt><dd>${esc(SRC[f.root] || f.root)}${f.offline ? " (offline now)" : ""}</dd></dl>
+    <div class="path"><b>Original</b>${esc(original)}</div>
+    ${f.link ? `<div class="path"><b>In Atlas</b>${esc(f.link)}</div>` : ""}
+    <div class="row">
+      <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
+      ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
+      <button type="button" class="btn" id="o-src">Open the original</button>
+    </div>
+    ${f.readonly && f.kind !== "tree" ? `<p class="note">Read only here: files can be previewed, copied and downloaded, not changed.</p>` : ""}
+    <div class="note" id="o-note" hidden></div>
+    ${f.kind === "tree" ? `<p class="note">${esc(UI.tree_note || "")}</p>` : `
+    <div class="move">
+      <label for="mv-s">Move to state<select id="mv-s">${states}</select></label>
+      <label for="mv-c">Category<select id="mv-c">${cats}</select></label>
+      <div class="row"><button type="button" class="btn primary" id="mv-go">Move</button>
+      ${f.how === "you" ? `<button type="button" class="btn" id="mv-reset">Let the software decide</button>` : ""}</div>
+      <p class="note">Only the link moves. The original stays where it is.</p>
+    </div>`}`;
+  const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
+  const open = what => post("/open", { id, what }).then(() => note("Opened in Explorer.", "ok"), e => note(e.message === "not reachable right now" ? "That folder can't be reached right now. Is its cloud drive running?" : "Couldn't open it: " + e.message, "err"));
+  if ($("#o-view")) $("#o-view").onclick = () => open("view");
+  $("#o-src").onclick = () => open("source");
+  $("#o-browse").onclick = () => browse(original);
+  if ($("#mv-go")) $("#mv-go").onclick = async () => {
+    try { await post("/place", { id, state: $("#mv-s").value, category: $("#mv-c").value }); note("Moved. The map updates in a few seconds.", "ok"); setTimeout(load, 2500); }
+    catch (e) { note("Couldn't move it: " + e.message, "err"); }
+  };
+  if ($("#mv-reset")) $("#mv-reset").onclick = async () => {
+    try { await post("/place", { id, state: f.state, category: f.category, reset: true }); note("Back to the software's choice.", "ok"); setTimeout(load, 2500); }
+    catch (e) { note("Couldn't reset it: " + e.message, "err"); }
+  };
+}
+
+function meta() {
+  const d = S.data, when = new Date(d.generated);
+  const t = when.toLocaleString("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const n = d.folders.filter(f => f.state !== "skip").length;
+  $("#meta").innerHTML = `<b>${fmtN(d.total_files)}</b> files · <b>${d.total_gb >= 1000 ? (d.total_gb / 1000).toFixed(2) + " TB" : d.total_gb + " GB"}</b> · <b>${n}</b> folders · scanned ${esc(t)}, again every ${d.every_min} min` + (d.missing && d.missing.length ? ` · <span style="color:var(--warn)">offline: ${esc(d.missing.join(", "))}</span>` : "");
+}
+
+async function load() {
+  try {
+    const r = await fetch("/map.json", { cache: "no-store" }); const d = await r.json();
+    if (!d.folders) throw new Error("empty");
+    const changed = d.generated !== S.gen; S.data = d; S.gen = d.generated;
+    S.byId = Object.fromEntries(d.folders.map(f => [f.id, f]));
+    UI = d.ui || {}; SRC = UI.sources || {}; UI.tree_label = UI.tree_label || "Protected tree";
+    const lg = $("#lg-tree"); lg.hidden = !d.folders.some(f => f.kind === "tree"); lg.querySelector("b").textContent = UI.tree_legend || "";
+    meta(); render(); crumbs();
+    if (S.sel && changed && !S.browse) { const [i, c] = S.sel.split("::"); if (S.byId[i]) select(i, c || null); }
+  } catch (e) {
+    $("#map").innerHTML = `<div class="banner">Atlas needs its background service. It starts when you sign in to Windows; to start it now, open Atlas from the Start menu.</div>`;
+  }
+}
+
+document.querySelectorAll("#metric button").forEach(b => b.onclick = () => {
+  S.metric = b.dataset.m; document.querySelectorAll("#metric button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); render();
+});
+document.querySelectorAll("#views button").forEach(b => b.onclick = () => setView(b.dataset.v, true));
+$("#q").oninput = e => { S.q = e.target.value; if (!S.browse && S.view === "treemap") applySearch(); else render(); findFiles(S.q); };
+$("#q").onkeydown = e => {
+  if (e.key !== "Enter" || S.browse) return;
+  clearTimeout(findT);
+  const hit = S.view === "treemap" ? document.querySelector(".tile:not(.dim)") : document.querySelector("#map .hit[data-id]");
+  if (hit && S.q) { const [i, c] = hit.dataset.id.split("::"); select(i, c || null); }
+};
+$("#rescan").onclick = async () => {
+  const b = $("#rescan"); b.disabled = true; b.textContent = "Scanning";
+  try {
+    await post("/rescan", {});
+    for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 2000)); const s = await (await fetch("/status", { cache: "no-store" })).json(); if (!s.running) break; }
+    await load();
+  } catch (e) { /* the banner or the next poll shows the state */ }
+  b.disabled = false; b.textContent = "Rescan now";
+};
+const TONES = [["red", "Red", 27, .17], ["orange", "Orange", 48, .15], ["amber", "Amber", 78, .13], ["green", "Green", 150, .13],
+  ["teal", "Teal", 195, .11], ["blue", "Blue", 255, .15], ["violet", "Violet", 295, .15], ["graphite", "Graphite", 255, .02]];
+function applyTone(k) {
+  const t = TONES.find(x => x[0] === k) || TONES[0], r = document.documentElement.style;
+  r.setProperty("--h", t[2]); r.setProperty("--c", t[3]);
+  document.querySelectorAll("#tones button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === t[0])));
+}
+$("#tones").innerHTML = TONES.map(t => `<button type="button" data-k="${t[0]}" title="${t[1]}" aria-label="${t[1]} tone" style="background:oklch(.6 ${t[3]} ${t[2]})"></button>`).join("");
+document.querySelectorAll("#tones button").forEach(b => b.onclick = () => { applyTone(b.dataset.k); post("/settings", { tone: b.dataset.k }).catch(() => {}); closeTones(); });
+const tb = $("#tonebtn"), tp = $("#tones");
+function closeTones() { tp.hidden = true; tb.setAttribute("aria-expanded", "false"); }
+tb.onclick = e => { e.stopPropagation(); tp.hidden = !tp.hidden; tb.setAttribute("aria-expanded", String(!tp.hidden)); };
+document.addEventListener("click", e => { if (!tp.hidden && !tp.contains(e.target) && !tb.contains(e.target)) closeTones(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeTones(); });
+applyTone("red");
+fetch("/settings", { cache: "no-store" }).then(r => r.json()).then(s => { applyTone(s.tone || "red"); if (s.view && s.view !== S.view) setView(s.view, false); }).catch(() => {});
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
+$("#devices").onclick = devicesPanel;
+// Phone: the details panel is a sheet that slides up whenever it has something to show.
+new MutationObserver(() => document.body.classList.toggle("sheet", !$("#panel .empty"))).observe($("#panel"), { childList: true });
+$("#sheetx").onclick = () => document.body.classList.remove("sheet");
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+load(); crumbs();
+setInterval(() => fetch("/map.json", { cache: "no-store" }).then(r => r.json()).then(d => { if (d.generated && d.generated !== S.gen) load(); }).catch(() => {}), 60000);
+</script>
+</body>
+</html>

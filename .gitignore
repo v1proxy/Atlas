@@ -1,0 +1,21 @@
+# Personal: settings, decisions, sign-in. Never publish these.
+atlas.config.json
+overrides.json
+settings.json
+tags.json
+devices.json
+pairs.json
+local.key
+# Made by Atlas on each PC
+index.db
+index.tmp.db
+map.json
+manifest.json
+summary.json
+cache/
+*.log
+atlas.ico
+__pycache__/
+tests/shots/
+tests/samples.json
+tests/e2e_last.txt
