@@ -23,6 +23,7 @@ async function browse(dir, focusPath) {
   try {
     const [d, v] = await Promise.all([api("/api/ls?" + new URLSearchParams({ path: dir })), api("/api/tags")]);
     FB.vocab = v.vocab; S.browse = true;
+    document.body.classList.remove("sheet");          // on a phone, the folder's details sheet gives way to its files
     Object.assign(FB, { dir: d.path, entries: d.entries, readonly: d.readonly, parent: d.parent, checked: new Set(), focus: null });
     FB.msg = ""; FB.err = false; render();
     if (focusPath) { const e = FB.entries.find(x => x.path.toLowerCase() === focusPath.toLowerCase()); if (e) focusEntry(e); }

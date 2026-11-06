@@ -4,6 +4,10 @@ A local map of every folder on your Windows PC: Google Drive, OneDrive and your 
 
 Atlas runs on your own PC. Nothing is uploaded anywhere, and nothing it shows is loaded from the internet.
 
+![Atlas on a PC: every folder as a treemap, with the details of the selected folder on the right](docs/screenshots/pc-1-map.png)
+
+<sub>All screenshots use invented data: a fictional architect, Alex Rivera, with made-up folders, files and devices. To try the interface with the same data, run `python docs/demo/demo_server.py` and open http://127.0.0.1:8799.</sub>
+
 ## What it does
 
 - **Sorts everything.** Every 10 minutes Atlas reads the names, sizes and dates of your files (it never opens them, so cloud-only files are not downloaded), decides where each folder belongs, and keeps a folder of links (`~\Atlas`) in that order. Your originals never move.
@@ -13,6 +17,89 @@ Atlas runs on your own PC. Nothing is uploaded anywhere, and nothing it shows is
 - **Previews files.** Images (including iPhone HEIC and TIFF, converted on the PC), video, audio, PDF page by page, 3D models (STL, OBJ, PLY, GLB, GLTF) you can turn and zoom, and text. Full screen on the PC; on a phone files open full screen.
 - **Protects what must not change.** Folders you list as read only (a shared team site, a backup) can be browsed but never changed, and a protected tree is linked as it is and never rearranged.
 - **Goes with you.** Installed on a phone's home screen as an app, one screen like any app, reachable only through your own [Tailscale](https://tailscale.com) network.
+
+## How it works, in pictures
+
+### 1. The map
+
+Every folder Atlas found is a tile. The three columns are the three states: **Current** (in use), **Superseded** (older copies, old backups) and **Working** (in progress, not sorted yet). Inside each state, folders are grouped by category. A tile's area is its size; its shade is how recently it changed, lighter for the last 30 days. Hatched tiles are a protected tree, linked as it is and never changed.
+
+Click a tile to see what it is, where it lives and **why it sits there**: a known folder name, keywords in its files, a fixed place, or your own correction. Below that, **Move to state** and **Category** put it somewhere else; Atlas remembers, and only the link moves, never the original. Click a category heading to zoom into it.
+
+### 2. Find anything
+
+Type in the search box. Folders that match stay lit on the map, and from three letters the panel lists every file whose name matches, wherever it is. Click a file to open its folder with the file selected.
+
+![Searching for "harbor": the matching folder stays lit and matching files are listed](docs/screenshots/pc-2-find.png)
+
+### 3. Three views
+
+**Treemap** shows sizes, **Tree** shows the structure and **List** reads like a table. The buttons beside them size the map by space used, by number of files, or every folder the same.
+
+In the Tree, drag to move and scroll or pinch to zoom. Zooming out stops when the whole structure is on screen, and **All** jumps straight there.
+
+![The Tree view on its dot grid, with zoom buttons](docs/screenshots/pc-3-tree.png)
+
+### 4. Open a folder
+
+**Browse files** opens the folder itself. The toolbar works like Windows Explorer: Up, New folder, Copy, Cut, Paste, Rename, Tags, Delete, Download and Open on PC. Tick the boxes to act on several files at once. Deleted files go to the Recycle Bin.
+
+Click a file to preview it on the right. PDFs show page by page:
+
+![The file browser with a PDF preview](docs/screenshots/pc-4-files-pdf.png)
+
+3D models turn with a drag and zoom with the scroll wheel or a pinch:
+
+![A 3D model preview](docs/screenshots/pc-5-files-3d.png)
+
+**Full screen** shows any preview across the whole window; Escape closes it.
+
+![A photo in the full-screen viewer](docs/screenshots/pc-7-fullscreen.png)
+
+### 5. Label files
+
+Two ways, as in Windows: **Rename** changes the file's name, and **Tags** adds named labels in eight colors. Tags show in the file list, work the same on every drive, and follow a file when you rename or move it in Atlas.
+
+![Adding color tags to a file](docs/screenshots/pc-6-tags.png)
+
+### 6. Your colors
+
+The round button next to the search box opens eight tones for the whole map. The choice is remembered.
+
+![The map in the teal tone, with the color choices open](docs/screenshots/pc-9-color.png)
+
+### 7. Devices and your phone
+
+**Devices** lists every device signed in to Atlas, with when it was last used, and signs any of them out. **Pair a phone** shows a QR code to scan, and the same code can be typed on the phone's lock screen. The red **Lock** button signs out the device you are on.
+
+![Signed-in devices and a pairing QR code](docs/screenshots/pc-8-devices.png)
+
+### 8. On the phone
+
+The same Atlas, installed as an app. The top bar stays put and everything else fits one screen; folder details slide up from the bottom, and files open full screen.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/phone-1-unlock.png" alt="The lock screen with the pairing code box"></td>
+<td width="33%"><img src="docs/screenshots/phone-2-map.png" alt="The map on a phone"></td>
+<td width="33%"><img src="docs/screenshots/phone-3-details.png" alt="A folder's details sliding up from the bottom"></td>
+</tr>
+<tr>
+<td><b>Unlock.</b> Type or paste the pairing code once. The phone then stays signed in.</td>
+<td><b>The map.</b> Tap a heading to zoom into a category.</td>
+<td><b>Details.</b> Tap a tile; Close puts the sheet away.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/phone-4-files.png" alt="The file browser on a phone"></td>
+<td><img src="docs/screenshots/phone-5-viewer.png" alt="A photo full screen on a phone"></td>
+<td><img src="docs/screenshots/phone-6-tree.png" alt="The whole tree on a phone"></td>
+</tr>
+<tr>
+<td><b>Files.</b> The same toolbar as on the PC.</td>
+<td><b>Previews.</b> Files open full screen.</td>
+<td><b>Tree.</b> Pinch to zoom; it opens showing the whole structure.</td>
+</tr>
+</table>
 
 ## Install (Windows 10 or 11)
 
@@ -94,6 +181,7 @@ The tests make their own folder in Downloads and remove it at the end. They need
 | `fileops.py` | File actions, tags, previews, file search |
 | `config.py` | Reads `atlas.config.json` |
 | `map.html`, `static/` | The page, the file browser, the phone app files |
+| `docs/demo/` | A demo server with invented data, and the script that takes the screenshots in `docs/screenshots` |
 
 ## Credits
 
