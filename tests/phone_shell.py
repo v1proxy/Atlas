@@ -6,6 +6,10 @@ import security as sec
 
 BASE = "http://127.0.0.1:8765"; SHOTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots"); os.makedirs(SHOTS, exist_ok=True)
 R = []
+OVERLAP = """() => { const t = [...document.querySelectorAll('#map .tile')].map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
+  let bad = 0; for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const a = t[i], b = t[j];
+    if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.6 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.6) bad++; }
+  return bad }"""
 def check(name, ok, detail=""):
     R.append((name, bool(ok))); print(("PASS" if ok else "FAIL"), name, ":", str(detail)[:140], flush=True)
 
@@ -24,6 +28,18 @@ with sync_playwright() as p:
         pg.mouse.wheel(0, 2000); pg.wait_for_timeout(300)
         check(f"{label}: the title stays on screen", pg.evaluate("document.querySelector('h1').getBoundingClientRect().top >= 0"), "")
         tiles = pg.locator(".tile").count(); check(f"{label}: treemap fills the screen", tiles > 50, tiles)
+        check(f"{label}: no tile overlaps another, however small", pg.evaluate(OVERLAP) == 0, pg.evaluate(OVERLAP))
+        k0, n0 = pg.evaluate("MZ.k"), pg.locator("#map .tile .n").count()
+        for _ in range(4): pg.click(".tzbar [data-z=in]"); pg.wait_for_timeout(200)
+        k1 = pg.evaluate("MZ.k"); folds = pg.locator("#map .region.fold").count()
+        check(f"{label}: treemap zooms in and folders open into their subfolders", k1 > k0 and folds > 0, f"k {k0:.1f} -> {k1:.1f}, {folds} open folders")
+        check(f"{label}: zoomed in, still no overlaps", pg.evaluate(OVERLAP) == 0, pg.evaluate(OVERLAP))
+        box = pg.locator("#map").bounding_box(); mx, my = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        x0 = pg.evaluate("MZ.x"); pg.mouse.move(mx, my); pg.mouse.down(); pg.mouse.move(mx - 140, my - 80, steps=8); pg.mouse.up(); pg.wait_for_timeout(400)
+        check(f"{label}: drag moves the zoomed treemap", pg.evaluate("MZ.x") != x0, f"{x0:.0f} -> {pg.evaluate('MZ.x'):.0f}")
+        pg.screenshot(path=os.path.join(SHOTS, f"{label.lower()}_treemap_zoomed.png"))
+        pg.click(".tzbar [data-z=fit]"); pg.wait_for_timeout(300)
+        check(f"{label}: All goes back to the whole map", pg.evaluate("MZ.k") == 1, pg.evaluate("MZ.k"))
         pg.click("#views button[data-v=tree]"); pg.wait_for_timeout(800)
         fitted = pg.evaluate("""() => { const m = document.querySelector('#map').getBoundingClientRect(), g = document.querySelector('#map svg > g').getBoundingClientRect();
             return [Math.round(g.width), Math.round(g.height), Math.round(m.width), Math.round(m.height), g.left >= m.left - 1 && g.right <= m.right + 1 && g.top >= m.top - 1 && g.bottom <= m.bottom + 1] }""")

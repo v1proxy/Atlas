@@ -71,6 +71,31 @@ for f in F:
     if f["kind"] == "tree":
         f["files"] = sum(c["files"] for c in f["children"]); f["gb"] = round(sum(c["gb"] for c in f["children"]), 2)
         f["newest"] = max(c["newest"] for c in f["children"])
+# Invented subfolders, two levels down, so the treemap has detail to show when you zoom in
+SUBS = ["Drawings", "Renders", "Photos", "Models", "Notes", "Exports", "Admin", "Correspondence", "Site visits", "Presentations",
+        "Reference", "Archive", "Specs", "Budget", "Sketches", "Video"]
+def split(total, n):
+    w = [random.random() ** 2 + 0.02 for _ in range(n)]; s = sum(w)
+    return [total * x / s for x in w]
+def day(f): return time.strftime("%Y-%m-%d", time.localtime(time.time() - random.randint(0, 400) * 86400))
+for f in F:
+    if f["kind"] == "loose": continue
+    if f["kind"] == "tree":
+        for c in f["children"]:
+            names = random.sample(SUBS, 6)
+            c["kids"] = [{"name": n, "files": max(1, round(c["files"] * g / c["gb"])), "gb": round(g, 2), "newest": day(f)}
+                         for n, g in zip(names, split(c["gb"], 6))]
+        continue
+    n = random.randint(4, 14); names = random.sample(SUBS, n - 1) + ["(files at the top)"]
+    kids = []
+    for name, g in zip(names, split(f["gb"], n)):
+        k = {"name": name, "files": max(1, round(f["files"] * g / max(f["gb"], 0.01))), "gb": round(g, 2), "newest": day(f)}
+        if g > f["gb"] * 0.12 and not name.startswith("("):
+            m = random.randint(3, 9)
+            k["kids"] = [{"name": s, "files": max(1, round(k["files"] * h / max(g, 0.01))), "gb": round(h, 2), "newest": day(f)}
+                         for s, h in zip(random.sample(SUBS, m - 1) + ["(files here)"], split(g, m))]
+        kids.append(k)
+    f["children"] = sorted(kids, key=lambda k: -k["gb"])
 MAP = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "view_root": H + "\\Atlas", "every_min": 10, "missing": [],
        "total_files": sum(f["files"] for f in F) + 12000, "total_gb": round(sum(f["gb"] for f in F) + 40, 1),
        "states": [C, S_, W], "categories": CATS,

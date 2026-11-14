@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/app/files.css?v=10">
+<link rel="stylesheet" href="/static/app/files.css?v=11">
 <style>
 /* IBM Plex, served from this PC (SIL Open Font License, static/vendor/fonts/OFL.txt): nothing is fetched from the internet. */
 @font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Light.woff2) format("woff2"); }
@@ -176,6 +176,14 @@ header { grid-row: 1; } .sub { grid-row: 2; }
 #map { min-height: 0; }
 #map.zoomable { overflow: hidden; touch-action: none; cursor: grab; border: 1px solid var(--line); }
 #map.zoomable svg { display: block; touch-action: none; }
+#map.tmview { overflow: hidden; touch-action: none; }
+.tmz { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.tile.xs { padding: 0; border-radius: 1px; }
+.tile.more { font-style: italic; }
+.region.fold { background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line); border-radius: 3px; }
+.region.fold .h { font: 400 12px/20px var(--f-body); color: var(--ink); padding: 0 6px; cursor: pointer; }
+.region.fold .h small { font: 11px var(--f-mono); color: var(--dim); margin-left: 6px; }
+.region.fold.sel { box-shadow: inset 0 0 0 2px var(--ink); }
 .tzbar { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; z-index: 5; }
 .tzbar button { min-width: 40px; height: 40px; font: 500 16px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
 aside { min-height: 0; display: block; }
@@ -246,7 +254,7 @@ aside { min-height: 0; display: block; }
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script src="/static/app/files.js?v=10"></script>
+<script src="/static/app/files.js?v=11"></script>
 <script>
 const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
 const $ = s => document.querySelector(s);
@@ -310,25 +318,39 @@ function hierarchy(skipTree) {
   return root;
 }
 
+// Treemap: pinch, scroll or + − to zoom, drag to move. The layout is drawn again at each zoom level, so text stays
+// sharp, labels appear as tiles grow, and a folder big enough on screen opens up to show its subfolders.
+const MZ = { k: 1, x: 0, y: 0 };
+function resetMZ() { MZ.k = 1; MZ.x = 0; MZ.y = 0; }
+const kidsOf = o => { const k = o && (o.kids || o.children); return k && k.some(x => !x.name.startsWith("(")) ? k : null; };
+
 function renderTreemap() {
   const map = $("#map"); map.innerHTML = "";
   const W = map.clientWidth, H = map.clientHeight;
+  MZ.k = Math.min(60, Math.max(1, MZ.k));
+  MZ.x = Math.min(0, Math.max(W - W * MZ.k, MZ.x)); MZ.y = Math.min(0, Math.max(H - H * MZ.k, MZ.y));
+  const box = document.createElement("div"); box.className = "tmz";
+  Object.assign(box.style, { width: W * MZ.k + "px", height: H * MZ.k + "px", transform: `translate(${MZ.x}px,${MZ.y}px)` });
+  map.appendChild(box);
+  const V = { x0: -MZ.x - W, y0: -MZ.y - H, x1: -MZ.x + 2 * W, y1: -MZ.y + 2 * H };          // draw one screen around the view
+  const off = (x, y, w, h) => x + w < V.x0 || y + h < V.y0 || x > V.x1 || y > V.y1;
   const root = hierarchy(false);
   const draw = (node, x, y, w, h) => {
-    if (node.leaf) return tile(node.f, x, y, w, h, node.child);
+    if (off(x, y, w, h)) return;
+    if (node.leaf) return tile(box, node.f, x, y, w, h, node.child, off);
     let top = 0, pad = 0;
     if (node.type === "state") { top = 28; }
-    if (node.type === "cat" || node.type === "tree") { pad = 3; top = (w >= 80 && h >= 46) ? 18 : 0; }
+    if (node.type === "cat" || node.type === "tree") { pad = w > 12 && h > 12 ? 3 : 0; top = (w >= 80 && h >= 46) ? 18 : 0; }
     if (node.type !== "root") {
       const r = document.createElement("div");
       r.className = "region " + node.type; Object.assign(r.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
       if (top) {
         const hb = document.createElement("button"); hb.type = "button"; hb.className = "h";
         hb.innerHTML = node.type === "state" ? `${esc(node.label)}<small>${node.n} folders</small>` : esc(node.label);
-        hb.title = "Zoom into " + node.label; hb.onclick = () => { S.zoom = node.path; render(); crumbs(); };
+        hb.title = "Zoom into " + node.label; hb.onclick = () => { S.zoom = node.path; resetMZ(); render(); crumbs(); };
         r.appendChild(hb);
       }
-      map.appendChild(r);
+      box.appendChild(r);
     }
     const kids = [...node.kids].sort((a, b) => b.v - a.v);
     const inner = { x: x + pad, y: y + top + pad, w: w - 2 * pad, h: h - top - 2 * pad };
@@ -336,32 +358,103 @@ function renderTreemap() {
     const rects = squarify(kids.map(k => k.v), inner.x, inner.y, inner.w, inner.h);
     kids.forEach((k, i) => { const q = rects[i]; draw(k, q.x + gap / 2, q.y + gap / 2, Math.max(0, q.w - gap), Math.max(0, q.h - gap)); });
   };
-  draw(root, 0, 0, W, H);
+  draw(root, 0, 0, W * MZ.k, H * MZ.k);
   applySearch();
-  if (S.sel) { const t = document.querySelector(`.tile[data-id="${CSS.escape(S.sel)}"]`); if (t) t.classList.add("sel"); }
+  if (S.sel) { const t = box.querySelector(`[data-id="${CSS.escape(S.sel)}"]`); if (t) t.classList.add("sel"); }
+  treemapZoom(map, box, W, H);
 }
 
-function tile(f, x, y, w, h, c) {
+// One folder, or one subfolder (c). Big enough on screen, it opens into its own subfolders.
+function tile(box, f, x, y, w, h, c, off) {
   if (w < 1 || h < 1) return;
-  const t = document.createElement("button");
-  t.type = "button"; t.dataset.id = c ? f.id + "::" + c.name : f.id;
-  t.className = "tile a" + age(c || f) + (f.kind === "tree" ? " tree" : "") + (f.offline ? " off" : "");
-  Object.assign(t.style, { left: (x + 1) + "px", top: (y + 1) + "px", width: Math.max(0, w - 2) + "px", height: Math.max(0, h - 2) + "px" });
-  const nm = c ? c.name : f.kind === "tree" ? `${UI.tree_label}, ${f.state}` : f.name, o = c || f;
-  t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
-  if (w >= 60 && h >= 26) {
-    t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${S.metric === "files" ? fmtN(o.files) + " files" : fmtGB(o.gb)}</span>` : "");
+  const o = c || f, sub = kidsOf(o);
+  const id = c ? f.id + "::" + c.name : f.id;
+  const nm = c ? c.label || c.name : f.kind === "tree" ? `${UI.tree_label}, ${f.state}` : f.name;
+  const size = S.metric === "files" ? fmtN(o.files) + " files" : fmtGB(o.gb);
+  if (sub && w >= 150 && h >= 110) {
+    const r = document.createElement("div"); r.className = "region fold"; r.dataset.id = id;
+    Object.assign(r.style, { left: x + 1 + "px", top: y + 1 + "px", width: w - 2 + "px", height: h - 2 + "px" });
+    const hb = document.createElement("button"); hb.type = "button"; hb.className = "h";
+    hb.innerHTML = `${esc(nm)}<small>${esc(size)}</small>`; hb.onclick = () => pick(f, c);
+    r.appendChild(hb); box.appendChild(r);
+    const tot = sub.reduce((a, k) => a + cval(k), 0), fl = S.metric === "eq" ? 0 : tot * 0.004;
+    const kids = sub.map(k => ({ k, v: Math.max(cval(k), fl, 1e-9) })).sort((a, b) => b.v - a.v);
+    const rects = squarify(kids.map(k => k.v), x + 4, y + 22, w - 8, h - 26);
+    kids.forEach(({ k }, i) => {
+      const q = rects[i]; if (off(q.x, q.y, q.w, q.h)) return;
+      const pre = c ? c.name + "\\" : "";
+      tile(box, f, q.x, q.y, q.w, q.h, { ...k, name: pre + k.name, label: k.name, parent: c ? c.name : null }, off);
+    });
+    return;
   }
-  t.onclick = () => select(f.id, c ? c.name : null);
-  t.onpointermove = e => tip(e, f, c);
+  const t = document.createElement("button");
+  t.type = "button"; t.dataset.id = id;
+  const xs = w < 10 || h < 10, more = !!c && (c.label || c.name).startsWith("(");
+  t.className = "tile a" + age(o) + (f.kind === "tree" && !c ? " tree" : "") + (f.offline ? " off" : "") + (xs ? " xs" : "") + (more ? " more" : "");
+  const g = xs ? 0.5 : 1;
+  Object.assign(t.style, { left: (x + g) + "px", top: (y + g) + "px", width: Math.max(0, w - 2 * g) + "px", height: Math.max(0, h - 2 * g) + "px" });
+  t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
+  if (w >= 60 && h >= 26) t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${esc(size)}</span>` : "");
+  t.onclick = () => pick(f, c);
+  t.onpointermove = e => { if (e.pointerType === "mouse") tip(e, f, c); };
   t.onpointerleave = () => { $("#tip").hidden = true; };
-  $("#map").appendChild(t);
+  box.appendChild(t);
+}
+
+// "(files here)", "(12 more folders)": tapping one shows the folder that holds it.
+function pick(f, c) {
+  if (!c) return select(f.id, null);
+  if (!c.name.split("\\").pop().startsWith("(")) return select(f.id, c.name);
+  const up = c.name.includes("\\") ? c.name.slice(0, c.name.lastIndexOf("\\")) : null;
+  select(f.id, up);
+}
+
+function treemapZoom(map, box, W, H) {
+  const MAX = 60, T = { k: MZ.k, x: MZ.x, y: MZ.y };
+  const clamp = () => {
+    T.k = Math.min(MAX, Math.max(1, T.k));
+    T.x = Math.min(0, Math.max(W - W * T.k, T.x)); T.y = Math.min(0, Math.max(H - H * T.k, T.y));
+    box.style.transform = `translate(${T.x}px,${T.y}px) scale(${T.k / MZ.k})`;
+  };
+  let timer = 0;
+  const commit = (later) => {
+    clearTimeout(timer);
+    const go = () => { if (T.k !== MZ.k || T.x !== MZ.x || T.y !== MZ.y) { Object.assign(MZ, T); $("#tip").hidden = true; renderTreemap(); } };
+    if (later) timer = setTimeout(go, 160); else go();
+  };
+  const zoomAt = (k, cx, cy) => { k = Math.min(MAX, Math.max(1, k)); T.x = cx - (cx - T.x) * k / T.k; T.y = cy - (cy - T.y) * k / T.k; T.k = k; clamp(); };
+  const at = e => { const r = map.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const pts = new Map(); let pinch = null, moved = 0;
+  box.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; clearTimeout(timer); });
+  box.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return;
+    const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
+    if (pts.size === 1) {
+      const d = Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]); moved += d;
+      if (moved > 8) { T.x += p1[0] - p0[0]; T.y += p1[1] - p0[1]; clamp(); }
+      return;
+    }
+    const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) zoomAt(T.k * d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    pinch = d; moved = 99;
+  });
+  const up = e => { if (!pts.delete(e.pointerId)) return; pinch = null; if (!pts.size && moved > 8) commit(true); };
+  ["pointerup", "pointercancel"].forEach(n => box.addEventListener(n, up));
+  box.addEventListener("click", e => { if (moved > 8) { e.stopPropagation(); e.preventDefault(); } }, true);
+  box.addEventListener("wheel", e => { e.preventDefault(); const [cx, cy] = at(e); zoomAt(T.k * Math.exp(-e.deltaY * 0.0015), cx, cy); commit(true); }, { passive: false });
+  const z = document.createElement("div"); z.className = "tzbar";
+  z.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button>` +
+    (MZ.k > 1 ? `<button type="button" data-z="fit">All</button>` : "");
+  z.onclick = e => { const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.z === "fit") { T.k = 1; T.x = 0; T.y = 0; clamp(); } else zoomAt(T.k * (b.dataset.z === "in" ? 1.6 : 1 / 1.6), W / 2, H / 2);
+    commit(false); };
+  map.appendChild(z);
 }
 
 function tip(e, f, c) {
   const el = $("#tip"), o = c || f;
   const nm = c ? c.name : f.kind === "tree" ? UI.tree_label + ", " + f.state : f.name;
-  el.innerHTML = `<b>${esc(nm)}</b><span class="m">${fmtN(o.files)} files · ${fmtGB(o.gb)} · changed ${esc((o.newest || "").slice(0, 7))}</span><br>${esc(f.state)} · ${esc(c ? UI.tree_label : f.category)}`;
+  el.innerHTML = `<b>${esc(c ? c.label || c.name : nm)}</b><span class="m">${fmtN(o.files)} files · ${fmtGB(o.gb)} · changed ${esc((o.newest || "").slice(0, 7))}</span><br>${esc(f.state)} · ${esc(c ? (f.kind === "tree" ? UI.tree_label : f.name) : f.category)}`;
   el.hidden = false;
   const x = Math.min(e.clientX + 14, window.innerWidth - el.offsetWidth - 8), y = Math.min(e.clientY + 14, window.innerHeight - el.offsetHeight - 8);
   el.style.left = x + "px"; el.style.top = y + "px";
@@ -377,7 +470,8 @@ function model() {
     for (const [c, list] of Object.entries(cats)) {
       sn.kids.push({ key: st + "/" + c, label: c, type: "cat", kids: list.map(f => ({
         key: f.id, label: f.kind === "tree" ? UI.tree_label : f.name, type: "folder", f,
-        kids: (f.children || []).map(ch => ({ key: f.id + "::" + ch.name, label: ch.name, type: "child", f, c: ch, kids: [] })) })) });
+        kids: (f.children || []).map(ch => ({ key: f.id + "::" + ch.name, label: ch.name, type: "child", f, c: ch,
+          kids: (ch.kids || []).map(k => ({ key: f.id + "::" + ch.name + "\\" + k.name, label: k.name, type: "child", f, c: { ...k, name: ch.name + "\\" + k.name }, kids: [] })) })) })) });
     }
     if (sn.kids.length) root.kids.push(sn);
   }
@@ -533,6 +627,7 @@ function render() {
   const map = $("#map");
   map.classList.toggle("scroll", !!S.browse || S.view === "list");
   map.classList.toggle("zoomable", !S.browse && S.view === "tree");
+  map.classList.toggle("tmview", !S.browse && S.view === "treemap");
   map.classList.toggle("treeview", !S.browse && S.view === "tree");
   const cr = $("#crumbs"); if (cr) cr.hidden = !!S.browse || S.view !== "treemap";
   document.querySelector(".sub").hidden = !!S.browse;          // the map legend means nothing inside a folder
@@ -545,7 +640,7 @@ function render() {
 }
 
 function setView(v, save) {
-  S.view = v; S.browse = false; S.tz = null;
+  S.view = v; S.browse = false; S.tz = null; resetMZ();
   document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
   const cr = $("#crumbs"); if (cr) cr.hidden = v !== "treemap";
   render();
@@ -554,7 +649,7 @@ function setView(v, save) {
 
 function crumbs() {
   const c = $("#crumbs"); c.innerHTML = "";
-  const b = (label, z) => { const x = document.createElement("button"); x.type = "button"; x.textContent = label; x.onclick = () => { S.zoom = z; render(); crumbs(); }; return x; };
+  const b = (label, z) => { const x = document.createElement("button"); x.type = "button"; x.textContent = label; x.onclick = () => { S.zoom = z; resetMZ(); render(); crumbs(); }; return x; };
   c.appendChild(b("Everything", []));
   S.zoom.forEach((p, i) => { const s = document.createElement("span"); s.textContent = "›"; c.appendChild(s); c.appendChild(b(p, S.zoom.slice(0, i + 1))); });
 }
@@ -563,7 +658,7 @@ function applySearch() {
   const q = S.q.trim().toLowerCase();
   document.querySelectorAll(".tile").forEach(t => {
     const [id, child] = t.dataset.id.split("::"), f = S.byId[id];
-    const text = child ? child + " " + UI.tree_label + " " + f.state : f.name + " " + f.source + " " + f.category;
+    const text = child ? child + " " + f.name + " " + (f.kind === "tree" ? UI.tree_label + " " : "") + f.state : f.name + " " + f.source + " " + f.category;
     t.classList.toggle("dim", !!q && !text.toLowerCase().includes(q));
   });
 }
@@ -573,17 +668,24 @@ async function post(path, body) {
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "failed"); return j;
 }
 
+// A subfolder by its path inside the folder ("A" or "A\B"); "(files here)" and "(N more folders)" stand for the folder holding them.
+function findChild(f, name) {
+  let list = f.children || [], c = null;
+  for (const part of name.split("\\")) { c = (list || []).find(x => x.name === part); if (!c) return null; list = c.kids; }
+  return c;
+}
 function select(id, child) {
+  if (child && child.split("\\").pop().startsWith("(")) child = child.includes("\\") ? child.slice(0, child.lastIndexOf("\\")) : null;
   S.sel = child ? id + "::" + child : id;
   markSel();
   const f = S.byId[id]; const p = $("#panel");
   if (child) {
-    const c = (f.children || []).find(x => x.name === child); if (!c) return;
-    const top = child.startsWith("(");
+    const c = findChild(f, child); if (!c) return;
+    const top = false, tree = f.kind === "tree";
     p.innerHTML = `
       <div class="chip">${esc(f.state)}</div>
-      <h2>${esc(child)}</h2>
-      <div class="why">${esc(f.category)}<small>${esc(UI.tree_note || "")}</small></div>
+      <h2>${esc(child.split("\\").pop())}</h2>
+      <div class="why">${esc(f.category)}<small>${esc(tree ? UI.tree_note || "" : "Inside " + f.name + (child.includes("\\") ? " \u203a " + child.split("\\").slice(0, -1).join(" \u203a ") : ""))}</small></div>
       <dl><dt>Files</dt><dd>${fmtN(c.files)}</dd><dt>Size</dt><dd>${fmtGB(c.gb)}</dd><dt>Last change</dt><dd>${esc(c.newest)}</dd></dl>
       <div class="path"><b>Original</b>${esc(f.source + (top ? "" : "\\" + child))}</div>
       ${f.link ? `<div class="path"><b>In Atlas</b>${esc(f.link + (top ? "" : "\\" + child))}</div>` : ""}
@@ -592,7 +694,7 @@ function select(id, child) {
         ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
         ${S.data.server ? "" : `<button type="button" class="btn" id="o-src">Open the original</button>`}
       </div>
-      <p class="note">${esc(UI.tree_readonly_note || "Read only here.")}</p>
+      ${tree ? `<p class="note">${esc(UI.tree_readonly_note || "Read only here.")}</p>` : f.readonly ? `<p class="note">Read only here: files can be previewed, copied and downloaded, not changed.</p>` : ""}
       <div class="note" id="o-note" hidden></div>`;
     $("#o-browse").onclick = () => browse(f.source + (top ? "" : "\\" + child));
     const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
@@ -665,7 +767,7 @@ async function load() {
 }
 
 document.querySelectorAll("#metric button").forEach(b => b.onclick = () => {
-  S.metric = b.dataset.m; document.querySelectorAll("#metric button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); render();
+  S.metric = b.dataset.m; document.querySelectorAll("#metric button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); resetMZ(); render();
 });
 document.querySelectorAll("#views button").forEach(b => b.onclick = () => setView(b.dataset.v, true));
 $("#q").oninput = e => { S.q = e.target.value; if (!S.browse && S.view === "treemap") applySearch(); else render(); findFiles(S.q); };
@@ -712,7 +814,7 @@ $("#sheetx").onclick = () => document.body.classList.remove("sheet");
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 try { sessionStorage.removeItem("atlasRetry"); } catch (e) {}
 load(); crumbs();
-setInterval(() => fetch("/map.json", { cache: "no-store" }).then(r => r.json()).then(d => { if (d.generated && d.generated !== S.gen) load(); }).catch(() => {}), 60000);
+setInterval(() => fetch("/status", { cache: "no-store" }).then(r => r.json()).then(s => { if (s.last && s.last !== S.gen && !s.running) load(); }).catch(() => {}), 60000);
 </script>
 </body>
 </html>

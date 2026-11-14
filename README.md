@@ -11,7 +11,7 @@ Atlas runs on your own PC. Nothing is uploaded anywhere, and nothing it shows is
 ## What it does
 
 - **Sorts everything.** Every 10 minutes Atlas reads the names, sizes and dates of your files (it never opens them, so cloud-only files are not downloaded), decides where each folder belongs, and keeps a folder of links (`~\Atlas`) in that order. Your originals never move.
-- **Shows it as a map.** Three views of the same order: a treemap (area is size, shade is how recently it changed), a tree you can drag and pinch to zoom (out to exactly the whole structure), and a list. Search finds folders and, from three letters, files by name.
+- **Shows it as a map.** Three views of the same order: a treemap (area is size, shade is how recently it changed) you can pinch or scroll to zoom, where folders open into their subfolders as they grow on screen; a tree you can drag and pinch to zoom (out to exactly the whole structure); and a list. Search finds folders and, from three letters, files by name.
 - **Lets you correct it.** Move a folder to another place on the map and Atlas remembers; "Let the software decide" undoes it.
 - **Works like Explorer inside any folder.** New folder, rename, copy, cut, paste, delete (always to the Recycle Bin), download, open on the PC, and color tags.
 - **Previews files.** Images (including iPhone HEIC and TIFF, converted on the PC), video, audio, PDF page by page, 3D models (STL, OBJ, PLY, GLB, GLTF) you can turn and zoom, and text. Full screen on the PC; on a phone files open full screen.
@@ -23,6 +23,8 @@ Atlas runs on your own PC. Nothing is uploaded anywhere, and nothing it shows is
 ### 1. The map
 
 Every folder Atlas found is a tile. The three columns are the three states: **Current** (in use), **Superseded** (older copies, old backups) and **Working** (in progress, not sorted yet). Inside each state, folders are grouped by category. A tile's area is its size; its shade is how recently it changed, lighter for the last 30 days. Hatched tiles are a protected tree, linked as it is and never changed.
+
+Pinch, scroll or use **+** and **−** to zoom, and drag to move around. The map is drawn again at every zoom level, so text stays sharp: as a folder grows on screen it opens into its subfolders, and the larger of those into theirs. **All** goes back to the whole map.
 
 Click a tile to see what it is, where it lives and **why it sits there**: a known folder name, keywords in its files, a fixed place, or your own correction. Below that, **Move to state** and **Category** put it somewhere else; Atlas remembers, and only the link moves, never the original. Click a category heading to zoom into it.
 

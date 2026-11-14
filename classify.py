@@ -59,6 +59,58 @@ def units():
             for u in C.get("fixed", [])]
 
 
+def _day(t):
+    return time.strftime("%Y-%m-%d", time.localtime(t)) if t else ""
+
+
+def _entry(name, v, kids=None):
+    e = {"name": name, "files": v[0], "gb": round(v[1] / 1e9, 3), "newest": _day(v[2])}
+    if kids: e["kids"] = kids
+    return e
+
+
+def _pack(items, top, more):
+    """The largest `top` entries by size; the rest summed into one "(N more ...)" entry."""
+    items = sorted(items, key=lambda kv: -kv[1][1])
+    keep, rest = items[:top], items[top:]
+    if rest:
+        keep.append((f"({len(rest)} more {more})", [sum(v[0] for _, v in rest), sum(v[1] for _, v in rest), max(v[2] for _, v in rest)]))
+    return keep
+
+
+def subfolders(db, sources, deep=10, share=0.04):
+    """One pass over the index: for each folder in `sources`, its first-level subfolders with files, size and
+    last change, and inside the larger ones (at least `share` of the folder) their own subfolders. Files sitting
+    directly in a folder are one entry. Returns a function source, top -> list for the map."""
+    want = {W.normcase(s): s for s in sources}
+    lvl1 = defaultdict(lambda: defaultdict(lambda: [0, 0, 0.0]))
+    lvl2 = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0, 0, 0.0])))
+    total = defaultdict(int)
+    for (path, size, mtime) in db.execute("SELECT path, size, mtime FROM files"):
+        parts = path.split("\\")
+        for i in range(len(parts) - 1, 0, -1):                 # the deepest folder in the list that holds the file
+            src = want.get(W.normcase("\\".join(parts[:i])))
+            if src is None: continue
+            p = parts[i:]
+            a = p[0] if len(p) > 1 else "(files at the top)"
+            k = lvl1[src][a]; k[0] += 1; k[1] += size; k[2] = max(k[2], mtime); total[src] += size
+            if len(p) > 1:
+                b = p[1] if len(p) > 2 else "(files here)"
+                k = lvl2[src][a][b]; k[0] += 1; k[1] += size; k[2] = max(k[2], mtime)
+            break
+
+    def get(source, top=30):
+        out = []
+        for name, v in _pack(lvl1[source].items(), top, "folders"):
+            kids = None
+            sub2 = lvl2[source].get(name)
+            if sub2 and len(sub2) > 1 and v[1] >= share * max(total[source], 1):
+                kids = [_entry(n, w) for n, w in _pack(sub2.items(), deep, "folders")]
+            out.append(_entry(name, v, kids))
+        return out
+    return get
+
+
 def classify(prev=None, missing_roots=()):
     db = sqlite3.connect(DB)
     ovr = {}
@@ -162,17 +214,12 @@ def classify(prev=None, missing_roots=()):
                         why=why, how=how, files=s["files"], gb=round(s["bytes"] / 1e9, 3), dup=round(dup * 100),
                         newest=time.strftime("%Y-%m-%d", time.localtime(s["newest"])) if s["newest"] else "",
                         top_kind=max(s["kinds"].items(), key=lambda x: x[1])[0] if s["kinds"] else ""))
-    # A protected tree's own first level, for the map; read only
+    # Each folder's subfolders, two levels down, so the map can show more detail as you zoom in.
+    # A protected tree keeps its whole first level (it is shown that way); other folders keep their largest ones.
+    subs = subfolders(db, [o["source"] for o in out if o["kind"] != "loose"])
     for o in out:
-        if o["kind"] != "tree": continue
-        kids = defaultdict(lambda: [0, 0, 0.0])
-        for (path, size, mtime) in db.execute("SELECT path, size, mtime FROM files WHERE path LIKE ? || '%'", (o["source"] + "\\",)):
-            p = W.relpath(path, o["source"]).split("\\")
-            child = p[0] if len(p) > 1 else "(files at the top)"
-            k = kids[child]; k[0] += 1; k[1] += size; k[2] = max(k[2], mtime)
-        o["children"] = [{"name": n, "files": v[0], "gb": round(v[1] / 1e9, 3),
-                          "newest": time.strftime("%Y-%m-%d", time.localtime(v[2])) if v[2] else ""}
-                         for n, v in sorted(kids.items())]
+        if o["kind"] == "loose": continue
+        o["children"] = subs(o["source"], top=200 if o["kind"] == "tree" else 30)
     # Folders on a source that is offline right now (a cloud drive not mounted yet) keep their last place
     if prev and missing_roots:
         have = {o["source"] for o in out}

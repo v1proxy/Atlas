@@ -42,6 +42,15 @@ def log(m):
     with open(LOG, "a", encoding="utf-8") as f: f.write(time.strftime("%Y-%m-%dT%H:%M:%S  service  ") + m + "\n")
 
 
+_gz = {"src": None, "out": b""}
+def gzipped(b):
+    """map.json grows with every folder's subfolders; compressed it is about a tenth, which matters on a phone."""
+    if _gz["src"] != b:
+        import gzip
+        _gz["src"], _gz["out"] = b, gzip.compress(b, 6)
+    return _gz["out"]
+
+
 def load_map():
     try: return json.load(open(MAP, encoding="utf-8"))
     except Exception: return {}
@@ -279,7 +288,10 @@ class Handler(BaseHTTPRequestHandler):
             if p in ("/", "/index.html"):
                 return self._send(200, open(os.path.join(HERE, "map.html"), "rb").read(), "text/html; charset=utf-8", self._renew())
             if p == "/map.json":
-                return self._send(200, open(MAP, "rb").read() if os.path.exists(MAP) else b"{}")
+                b = open(MAP, "rb").read() if os.path.exists(MAP) else b"{}"
+                if "gzip" in (self.headers.get("Accept-Encoding") or "") and len(b) > 2048:
+                    return self._send(200, gzipped(b), extra={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"})
+                return self._send(200, b)
             if p == "/settings":
                 return self._send(200, open(SET, "rb").read() if os.path.exists(SET) else b'{"tone":"red"}')
             if p == "/status": return self._json(200, STATUS)
@@ -350,7 +362,9 @@ class Handler(BaseHTTPRequestHandler):
                     target = f.get("link") if body.get("what") == "view" else (f["source"][:-7] if f["kind"] == "loose" else f["source"])
                     child = body.get("child")
                     if child is not None:
-                        if child not in [c["name"] for c in f.get("children", []) if not c["name"].startswith("(")]:
+                        known = {c["name"] for c in f.get("children", []) if not c["name"].startswith("(")}
+                        known |= {c["name"] + "\\" + k["name"] for c in f.get("children", []) for k in c.get("kids", []) if not k["name"].startswith("(")}
+                        if child not in known:
                             return self._json(400, {"error": "unknown folder"})
                         target = os.path.join(target, child) if target else None
                     if not target or not os.path.exists(target): return self._json(404, {"error": "not reachable right now"})
