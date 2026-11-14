@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark">
+<title>Atlas</title>
+<link rel="stylesheet" href="launcher.css">
+</head>
+<body data-screen="home">
+<header id="frame">
+  <div class="top">
+    <h1 id="title">Atlas</h1>
+    <div class="meta" id="meta">Loading</div>
+    <button type="button" class="btn" id="homebtn" hidden>Home</button>
+    <button type="button" class="btn" id="optbtn">Options</button>
+  </div>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Find an app, folder or file" aria-label="Find an app, folder or file" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+    <div class="seg only-apps" id="views" role="group" aria-label="View"><button type="button" data-v="treemap" aria-pressed="true">Treemap</button><button type="button" data-v="tree" aria-pressed="false">Tree</button><button type="button" data-v="list" aria-pressed="false">List</button></div>
+    <div class="seg only-apps" id="metric" role="group" aria-label="Sized by"><button type="button" data-m="use" aria-pressed="true">Use</button><button type="button" data-m="opens" aria-pressed="false">Opens</button><button type="button" data-m="eq" aria-pressed="false">Every app</button></div>
+    <div class="tonebox">
+      <button type="button" class="tonebtn" id="tonebtn" aria-haspopup="true" aria-expanded="false" title="Color"><i></i></button>
+      <div class="tones" id="tones" role="group" aria-label="Color" hidden></div>
+    </div>
+  </div>
+  <nav class="crumbs only-apps" id="crumbs" aria-label="Where you are"></nav>
+</header>
+
+<main id="home" aria-label="Home">
+  <button type="button" class="box apps" id="box-apps" aria-label="Apps"><svg class="mini" aria-hidden="true"></svg><span class="lbl">Apps</span><span class="v" id="v-apps"></span></button>
+  <button type="button" class="box files" id="box-files" aria-label="Files"><svg class="mini" aria-hidden="true"></svg><span class="lbl">Files</span><span class="v" id="v-files"></span></button>
+  <button type="button" class="hub" id="hub" aria-label="Speed dial. Hold, slide to a pin and let go."><span></span></button>
+</main>
+
+<main id="apps" aria-label="Apps" hidden><div id="map" role="application" aria-label="Map of every app"></div></main>
+
+<div class="dial" id="dial" hidden></div>
+<div class="results" id="results" hidden></div>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" aria-live="polite"><button type="button" class="sheetx" id="sheetx">Close</button><div id="panel"></div></aside>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="launcher.js"></script>
+</body>
+</html>

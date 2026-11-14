@@ -23,6 +23,7 @@ PORT, EVERY = sec.PORT, int(cfg.C.get("every_min", 10)) * 60
 MAP, LOG = os.path.join(HERE, "map.json"), os.path.join(HERE, "service.log")
 OVR, SET = os.path.join(cfg.STATE, "overrides.json"), os.path.join(cfg.STATE, "settings.json")
 STATIC = os.path.join(HERE, "static")
+LAUNCHER_DIR = os.path.join(HERE, "launcher_dist")      # Atlas launcher builds for Android phones (launcher/README.md)
 TONES = {"red", "orange", "amber", "green", "teal", "blue", "violet", "graphite"}
 ROOTS = {s["id"]: s["path"] for s in cfg.SOURCES}
 UI = {**cfg.UI, "sources": {s["id"]: s.get("label", s["id"]) for s in cfg.SOURCES}}
@@ -132,6 +133,7 @@ SYNC = threading.Lock()
 
 def device_label(ua):
     ua = ua or ""
+    if "AtlasLauncher" in ua: return "Android launcher"
     for k, v in (("Android", "Android phone"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Windows", "Windows browser"), ("Mac", "Mac")):
         if k in ua: return v
     return "Browser"
@@ -142,6 +144,28 @@ def browser_label(ua):
     for k, v in (("Edg/", "Edge"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome")):
         if k in ua: return v
     return "browser"
+
+
+LAUNCHER_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas launcher</title><style>body{background:#000;color:#F3F1EC;font:16px/1.5 Arial,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh}
+main{max-width:30rem;padding:24px}h1{font-weight:300;font-size:28px;margin:0 0 6px}p,li{color:#8E9096}b{color:#F3F1EC;font-weight:400}
+a.b{display:inline-block;margin:14px 0;font:16px Arial,sans-serif;padding:12px 18px;background:#F3F1EC;color:#000;border-radius:4px;text-decoration:none}</style>
+<main><h1>Atlas launcher</h1>{body}</main>"""
+
+
+def launcher_page():
+    try: info = json.load(open(os.path.join(LAUNCHER_DIR, "latest.json"), encoding="utf-8"))
+    except Exception: info = None
+    if not info or not os.path.isfile(os.path.join(LAUNCHER_DIR, "atlas-launcher.apk")):
+        return LAUNCHER_PAGE.replace("{body}", "<p>There is no launcher build on this Atlas yet.</p>")
+    e = html.escape
+    body = (f"<p>Atlas as this phone's Home screen. Version <b>{e(str(info.get('version', '')))}</b>"
+            + (f": {e(str(info.get('notes', '')))}" if info.get("notes") else "") + "</p>"
+            + '<a class="b" href="/launcher/atlas-launcher.apk">Download the launcher</a>'
+            + "<ol><li>Open the download and tap <b>Install</b>. The first time, Android asks you to allow installs from Chrome.</li>"
+            + "<li>Open Atlas and tap <b>Make Atlas the Home screen</b>.</li></ol>"
+            + "<p>Later versions arrive inside the launcher: Options, then Check for an update.</p>")
+    return LAUNCHER_PAGE.replace("{body}", body)
 
 
 LOCKED = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -217,6 +241,13 @@ class Handler(BaseHTTPRequestHandler):
         extra = {"Cache-Control": "public, max-age=86400"}
         if rp.endswith("sw.js"): extra = {"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"}
         self._headers(200, ct, len(b), extra); self.wfile.write(b)
+
+    def _apk(self, rp):
+        """A launcher build, from this machine's own disk (also on a server, where other files come from the cloud)."""
+        b = open(rp, "rb").read()
+        self._headers(200, "application/vnd.android.package-archive", len(b),
+                      {"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="atlas-launcher.apk"'}, csp=CSP_FILE)
+        self.wfile.write(b)
 
     def _file(self, rp, dl, size=None):
         size = os.path.getsize(rp) if size is None else size
@@ -295,6 +326,14 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/settings":
                 return self._send(200, open(SET, "rb").read() if os.path.exists(SET) else b'{"tone":"red"}')
             if p == "/status": return self._json(200, STATUS)
+            if p in ("/launcher", "/launcher/"): return self._send(200, launcher_page(), "text/html; charset=utf-8")
+            if p == "/launcher/latest.json":
+                rp = os.path.join(LAUNCHER_DIR, "latest.json")
+                return self._send(200, open(rp, "rb").read()) if os.path.isfile(rp) else self._json(404, {"error": "no launcher build here"})
+            if p == "/launcher/atlas-launcher.apk":
+                rp = os.path.join(LAUNCHER_DIR, "atlas-launcher.apk")
+                if not os.path.isfile(rp): return self._json(404, {"error": "no launcher build here"})
+                fo.log(f"{dev['name']}#{dev['id']}", "launcher-download", rp); return self._apk(rp)
             if p == "/api/whoami": return self._json(200, {"name": dev["name"], "kind": dev["kind"], "local": self._local(), "tailscale": sec.ts_name(), "server": cfg.CLOUD}, self._renew())
             if p == "/api/ls": return self._json(200, fo.listdir(q.get("path", "")))
             if p == "/api/text": return self._json(200, fo.text(q.get("path", "")))

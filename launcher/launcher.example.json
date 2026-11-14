@@ -1,0 +1,5 @@
+{
+  "_about": "Copy to launcher.json (never published) for your own build. server: your Atlas address on your tailnet. pair: optional one-time pairing code (atlas_service.py --pair); the launcher uses it once, on its first start, so you never type it.",
+  "server": "https://your-atlas.your-tailnet.ts.net",
+  "pair": ""
+}

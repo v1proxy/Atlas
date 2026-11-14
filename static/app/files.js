@@ -3,7 +3,7 @@
 // Every action is checked again on the PC (security.py); read-only folders refuse changes there too.
 const TAGC = { red: 25, orange: 48, amber: 78, green: 150, teal: 195, blue: 255, violet: 295, graphite: 255 };
 const tagColor = c => `oklch(.62 ${c === "graphite" ? .02 : .15} ${TAGC[c] ?? 255})`;
-const FB = { dir: null, entries: [], readonly: false, checked: new Set(), focus: null, vocab: {}, msg: "", err: false };
+const FB = { dir: null, entries: [], readonly: false, checked: new Set(), focus: null, vocab: {}, msg: "", err: false, hist: [], noHist: false };
 let CLIP = null;
 try { CLIP = JSON.parse(localStorage.getItem("atlas.clip") || "null"); } catch (e) { CLIP = null; }
 const saveClip = () => { try { localStorage.setItem("atlas.clip", JSON.stringify(CLIP)); } catch (e) {} };
@@ -20,8 +20,10 @@ function chips(tags, removable) {
 }
 
 async function browse(dir, focusPath) {
+  const from = S.browse ? FB.dir : null, back = FB.noHist; FB.noHist = false;
   try {
     const [d, v] = await Promise.all([api("/api/ls?" + new URLSearchParams({ path: dir })), api("/api/tags")]);
+    if (!from) FB.hist = []; else if (!back && from !== d.path) FB.hist.push(from);   // for Back in the launcher
     FB.vocab = v.vocab; S.browse = true;
     document.body.classList.remove("sheet");          // on a phone, the folder's details sheet gives way to its files
     Object.assign(FB, { dir: d.path, entries: d.entries, readonly: d.readonly, parent: d.parent, checked: new Set(), focus: null });
@@ -30,7 +32,7 @@ async function browse(dir, focusPath) {
   } catch (e) { FB.msg = "Can't open that folder: " + e.message; FB.err = true; if (S.browse) render(); else alert(FB.msg); }
 }
 
-function leaveBrowser() { S.browse = false; render(); }
+function leaveBrowser() { S.browse = false; FB.hist = []; render(); }
 
 function selection() {
   const sel = FB.entries.filter(e => FB.checked.has(e.path));
@@ -72,7 +74,8 @@ function renderBrowser() {
       <span class="nm"><span class="t">${esc(e.name)}</span>${chips(e.tags)}${e.cloud ? `<span class="cloud">cloud</span>` : ""}</span>
       <span class="num">${e.dir ? "" : fmtSize(e.size)}</span><span class="num fm">${fmtDate(e.mtime)}</span>`;
     r.querySelector("input").onclick = ev => { ev.stopPropagation(); ev.target.checked ? FB.checked.add(e.path) : FB.checked.delete(e.path); render(); };
-    r.onclick = () => e.dir ? browse(e.path) : focusEntry(e);
+    if (typeof LAUNCHER !== "undefined" && LAUNCHER) lpress(r, () => e.dir ? browse(e.path) : focusEntry(e), () => fileMenu(e));
+    else r.onclick = () => e.dir ? browse(e.path) : focusEntry(e);
     r.onkeydown = ev => { if (ev.key === "Enter") r.onclick(); };
     list.appendChild(r);
   }
@@ -81,6 +84,18 @@ function renderBrowser() {
   wrap.querySelector("#fb-back").onclick = leaveBrowser;
   wrap.querySelectorAll("[data-go]").forEach(b => b.onclick = () => browse(b.dataset.go));
   wrap.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.a));
+}
+
+// The launcher's long press on a file or folder: Add to speed dial, open, and where it is.
+function fileMenu(e) {
+  const p = $("#panel");
+  p.innerHTML = `<div class="chip">${esc(e.dir ? "folder" : e.kind === "image_conv" ? "image" : e.kind)}</div><h2>${esc(e.name)}</h2>
+    <div class="row"><button type="button" class="btn primary" id="fm-pin">${esc(pinLabel(e.path))}</button><button type="button" class="btn" id="fm-open">Open</button></div>
+    <p class="note" id="fm-note" hidden></p>
+    <dl>${e.dir ? "" : `<dt>Size</dt><dd>${fmtSize(e.size)}</dd>`}<dt>Changed</dt><dd>${fmtDate(e.mtime)}</dd></dl>
+    <div class="path"><b>Path</b>${esc(e.path)}</div>`;
+  $("#fm-pin").onclick = () => togglePin({ path: e.path, name: e.name, dir: !!e.dir, kind: e.kind }, $("#fm-pin"), $("#fm-note"));
+  $("#fm-open").onclick = () => { document.body.classList.remove("sheet"); e.dir ? browse(e.path) : focusEntry(e); };
 }
 
 function say(msg, err) { FB.msg = msg; FB.err = !!err; const m = document.querySelector(".fb-msg"); if (m) { m.textContent = msg; m.classList.toggle("err", !!err); } }

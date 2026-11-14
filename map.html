@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/app/files.css?v=11">
+<link rel="stylesheet" href="/static/app/files.css?v=12">
 <style>
 /* IBM Plex, served from this PC (SIL Open Font License, static/vendor/fonts/OFL.txt): nothing is fetched from the internet. */
 @font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Light.woff2) format("woff2"); }
@@ -213,6 +213,13 @@ aside { min-height: 0; display: block; }
   .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 500 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 }
 .btn.lock { background: #C8362F; border-color: #C8362F; color: #fff; font-weight: 500; }
+/* Inside the Atlas launcher on a phone: Home instead of Devices, one tap opens, a long press offers the speed dial. */
+#homel { display: none; }
+body.launcher #homel { display: inline-block; }
+body.launcher #devices { display: none; }
+body.launcher .tile, body.launcher .frow, body.launcher .region .h, body.launcher .lrow, body.launcher .treesvg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.launcher .press { box-shadow: inset 0 0 0 2px var(--ink) !important; }
+@media (max-width: 900px) { body.launcher #homel { position: absolute; top: 6px; right: 76px; padding: 3px 10px; font-size: 12px; } }
 .btn.lock:hover { background: #A92B25; border-color: #A92B25; }
 </style>
 </head>
@@ -233,6 +240,7 @@ aside { min-height: 0; display: block; }
       <div class="tones" id="tones" role="group" aria-label="Color" hidden></div>
     </div>
     <button type="button" class="btn" id="rescan">Rescan now</button>
+    <button type="button" class="btn" id="homel">Home</button>
     <button type="button" class="btn" id="devices">Devices</button>
     <button type="button" class="btn lock" id="lock" title="Sign this device out of Atlas">Lock</button>
   </div>
@@ -255,10 +263,12 @@ aside { min-height: 0; display: block; }
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script src="/static/app/files.js?v=11"></script>
+<script src="/static/app/files.js?v=12"></script>
 <script>
 const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
 const $ = s => document.querySelector(s);
+const LAUNCHER = !!window.AtlasLauncher;            // Atlas inside the Atlas launcher on a phone (launcher/ in this repository)
+if (LAUNCHER) document.body.classList.add("launcher");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtN = n => n.toLocaleString("en-US");
 const fmtGB = g => g < 0.01 ? "<0.01 GB" : g >= 1000 ? (g / 1000).toFixed(2) + " TB" : (g >= 100 ? g.toFixed(0) : g.toFixed(2)) + " GB";
@@ -376,7 +386,8 @@ function tile(box, f, x, y, w, h, c, off) {
     const r = document.createElement("div"); r.className = "region fold"; r.dataset.id = id;
     Object.assign(r.style, { left: x + 1 + "px", top: y + 1 + "px", width: w - 2 + "px", height: h - 2 + "px" });
     const hb = document.createElement("button"); hb.type = "button"; hb.className = "h";
-    hb.innerHTML = `${esc(nm)}<small>${esc(size)}</small>`; hb.onclick = () => pick(f, c);
+    hb.innerHTML = `${esc(nm)}<small>${esc(size)}</small>`;
+    if (LAUNCHER) lpress(hb, () => openTile(f, c), () => pick(f, c)); else hb.onclick = () => pick(f, c);
     r.appendChild(hb); box.appendChild(r);
     const tot = sub.reduce((a, k) => a + cval(k), 0), fl = S.metric === "eq" ? 0 : tot * 0.004;
     const kids = sub.map(k => ({ k, v: Math.max(cval(k), fl, 1e-9) })).sort((a, b) => b.v - a.v);
@@ -397,13 +408,59 @@ function tile(box, f, x, y, w, h, c, off) {
   t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
   if (w >= 60 && h >= 26) t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${esc(size)}</span>` : "");
   else t.classList.add("nolab");
-  t.onclick = () => pick(f, c);
+  if (LAUNCHER) lpress(t, () => openTile(f, c), () => pick(f, c)); else t.onclick = () => pick(f, c);
   t.onpointermove = e => { if (e.pointerType === "mouse") tip(e, f, c); };
   t.onpointerleave = () => { $("#tip").hidden = true; };
   box.appendChild(t);
 }
 
 // "(files here)", "(12 more folders)": tapping one shows the folder that holds it.
+// The launcher: one tap opens a folder, a long press shows its details and Add to speed dial.
+let fingers = 0;
+if (LAUNCHER) {
+  document.addEventListener("pointerdown", () => { fingers++; }, true);
+  ["pointerup", "pointercancel"].forEach(n => document.addEventListener(n, () => { fingers = Math.max(0, fingers - 1); }, true));
+}
+function lpress(el, onTap, onLong) {
+  let t = 0, x0 = 0, y0 = 0, down = false, fired = false;
+  el.addEventListener("pointerdown", e => {
+    down = true; fired = false; x0 = e.clientX; y0 = e.clientY; clearTimeout(t); el.classList.add("press");
+    t = setTimeout(() => { el.classList.remove("press"); if (!down || fingers > 1) return; fired = true; launcherCall("haptic", "long"); onLong(); }, 460);
+  });
+  el.addEventListener("pointermove", e => { if (down && Math.hypot(e.clientX - x0, e.clientY - y0) > 9) { clearTimeout(t); down = false; el.classList.remove("press"); } });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(n => el.addEventListener(n, () => { clearTimeout(t); down = false; el.classList.remove("press"); }));
+  el.addEventListener("contextmenu", e => e.preventDefault());
+  el.addEventListener("click", e => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; return; } onTap(e); });
+}
+function launcherCall(m, ...a) { try { return window.AtlasLauncher[m](...a); } catch (e) { return null; } }
+const pinLabel = path => launcherCall("isPinned", path) ? "Remove from speed dial" : "Add to speed dial";
+function togglePin(item, btn, note) {
+  const r = launcherCall("pin", JSON.stringify(item));
+  if (btn && r !== "full") btn.textContent = r === "added" ? "Remove from speed dial" : "Add to speed dial";
+  if (note) { note.hidden = r !== "full"; note.textContent = "The speed dial holds 10 files. Remove one first."; note.className = "note err"; }
+  return r;
+}
+function folderPath(f, child) {
+  if (child && child.split("\\").pop().startsWith("(")) child = child.includes("\\") ? child.slice(0, child.lastIndexOf("\\")) : null;
+  const base = f.kind === "loose" ? f.source.slice(0, -7) : f.source;
+  return child ? base + "\\" + child : base;
+}
+function openTile(f, c) { if (f.offline) return pick(f, c); browse(folderPath(f, c ? c.name : null)); }
+function pinBtn(path) { return LAUNCHER ? `<button type="button" class="btn" id="o-pin">${esc(pinLabel(path))}</button>` : ""; }
+function wirePin(path, name) { const b = $("#o-pin"); if (b) b.onclick = () => togglePin({ path, name, dir: true, kind: "folder" }, b, $("#o-note")); }
+window.atlasOpen = (path, dir) => { FB.hist = []; if (dir) browse(path); else browse(path.slice(0, path.lastIndexOf("\\")) || path, path); return true; };
+// Android's Back inside the launcher: close what is open, go back a folder, zoom out. False when there is nothing left.
+window.atlasBack = () => {
+  const v = document.querySelector(".viewer");
+  if (v) { v.querySelector("#v-close").click(); return true; }
+  if (document.body.classList.contains("sheet")) { document.body.classList.remove("sheet"); return true; }
+  if (!$("#tones").hidden) { closeTones(); return true; }
+  if (S.browse) { const prev = (FB.hist || []).pop(); if (prev) { FB.noHist = true; browse(prev); } else leaveBrowser(); return true; }
+  if (S.q) { $("#q").value = ""; S.q = ""; render(); return true; }
+  if (S.view === "treemap" && S.zoom.length) { S.zoom = S.zoom.slice(0, -1); resetMZ(); render(); crumbs(); return true; }
+  return false;
+};
+
 function pick(f, c) {
   if (!c) return select(f.id, null);
   if (!c.name.split("\\").pop().startsWith("(")) return select(f.id, c.name);
@@ -512,6 +569,8 @@ function markSel() {
   if (t) t.classList.add("sel");
 }
 
+function selectNode(n) { const [i, ch] = n.key.split("::"); select(i, ch || null); }
+function openNode(n) { const [i, ch] = n.key.split("::"), f = S.byId[i]; if (f.offline) return selectNode(n); browse(folderPath(f, ch || null)); }
 function toggleOrSelect(n) {
   const leaf = n.type === "folder" || n.type === "child";
   if (n.kids.length) { if (S.open.has(n.key)) S.open.delete(n.key); else S.open.add(n.key); }
@@ -556,7 +615,7 @@ function renderTree() {
     t.innerHTML = `${esc(lab)}<tspan class="m" dx="8">${esc(num)}</tspan>`;
     const ti = document.createElementNS(ns, "title"); ti.textContent = n.label + (closed ? " (tap to open)" : "");
     g.append(ti, c, t);
-    g.onclick = () => toggleOrSelect(n);
+    if (LAUNCHER && leaf) lpress(g, () => n.kids.length ? toggleOrSelect(n) : openNode(n), () => selectNode(n)); else g.onclick = () => toggleOrSelect(n);
     g.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleOrSelect(n); } };
     ng.appendChild(g);
   };
@@ -615,7 +674,7 @@ function renderList() {
       const sw = leaf ? `<i class="sw a${age(k.c || k.f)}${k.f.kind === "tree" ? " tree" : ""}"></i>` : "";
       r.innerHTML = `<span class="nm" style="padding-left:${d * 18}px"><span class="car">${k.kids.length ? (open ? "▾" : "▸") : ""}</span>${sw}<span class="t">${esc(k.label)}</span></span>`
         + `<span class="num">${fmtN(k.files)}</span><span class="num">${fmtGB(k.gb)}</span><span class="num c4">${esc((k.newest || "").slice(0, 7))}</span>`;
-      r.onclick = () => toggleOrSelect(k);
+      if (LAUNCHER && leaf) lpress(r, () => k.kids.length ? toggleOrSelect(k) : openNode(k), () => selectNode(k)); else r.onclick = () => toggleOrSelect(k);
       box.appendChild(r);
       if (open) walk(k, d + 1);
     }
@@ -693,12 +752,14 @@ function select(id, child) {
       ${f.link ? `<div class="path"><b>In Atlas</b>${esc(f.link + (top ? "" : "\\" + child))}</div>` : ""}
       <div class="row">
         <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
+        ${pinBtn(folderPath(f, child))}
         ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
         ${S.data.server ? "" : `<button type="button" class="btn" id="o-src">Open the original</button>`}
       </div>
       ${tree ? `<p class="note">${esc(UI.tree_readonly_note || "Read only here.")}</p>` : f.readonly ? `<p class="note">Read only here: files can be previewed, copied and downloaded, not changed.</p>` : ""}
       <div class="note" id="o-note" hidden></div>`;
     $("#o-browse").onclick = () => browse(f.source + (top ? "" : "\\" + child));
+    wirePin(folderPath(f, child), child.split("\\").pop());
     const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
     const open = what => post("/open", top ? { id, what } : { id, what, child }).then(() => note("Opened in Explorer.", "ok"), e => note("Couldn't open it: " + e.message, "err"));
     if ($("#o-view")) $("#o-view").onclick = () => open("view");
@@ -718,6 +779,7 @@ function select(id, child) {
     ${f.link ? `<div class="path"><b>In Atlas</b>${esc(f.link)}</div>` : ""}
     <div class="row">
       <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
+      ${pinBtn(original)}
       ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
       ${S.data.server ? "" : `<button type="button" class="btn" id="o-src">Open the original</button>`}
     </div>
@@ -736,6 +798,7 @@ function select(id, child) {
   if ($("#o-view")) $("#o-view").onclick = () => open("view");
   if ($("#o-src")) $("#o-src").onclick = () => open("source");
   $("#o-browse").onclick = () => browse(original);
+  wirePin(original, f.kind === "tree" ? UI.tree_label : f.name);
   if ($("#mv-go")) $("#mv-go").onclick = async () => {
     try { await post("/place", { id, state: $("#mv-s").value, category: $("#mv-c").value }); note("Moved. The map updates in a few seconds.", "ok"); setTimeout(load, 2500); }
     catch (e) { note("Couldn't move it: " + e.message, "err"); }
@@ -806,6 +869,7 @@ applyTone("red");
 fetch("/settings", { cache: "no-store" }).then(r => r.json()).then(s => { applyTone(s.tone || "red"); if (s.view && s.view !== S.view) setView(s.view, false); }).catch(() => {});
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
 $("#devices").onclick = devicesPanel;
+$("#homel").onclick = () => launcherCall("home");
 $("#lock").onclick = () => {
   const pc = /^(127\.0\.0\.1|localhost)(:|$)/.test(location.host);
   if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code.")) location.replace("/logout");

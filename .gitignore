@@ -19,3 +19,16 @@ __pycache__/
 tests/shots/
 tests/samples.json
 tests/e2e_last.txt
+# The Atlas launcher: personal settings, builds and signing keys
+launcher_dist/
+launcher/launcher.json
+launcher/rules.json
+launcher/test/site/
+launcher/test/shots/
+launcher/android/local.properties
+launcher/android/.gradle/
+launcher/android/.kotlin/
+launcher/android/build/
+launcher/android/app/build/
+*.jks
+*.keystore

@@ -1,0 +1,21 @@
+{
+  "_about": "How the launcher places apps in your Atlas categories. Category ids are the numbers of your categories in atlas.config.json (\"05\" means \"05 Personal\"). In order: your own move on the map, names (exact package names, or a prefix ending in *), the category the app declares, essentials (apps that came with the phone), keywords (words in the app's name or package), then Unsorted.",
+  "categories": {"01": "01 Work", "02": "02 Projects", "03": "03 Learning", "04": "04 Home", "05": "05 Personal", "06": "06 References", "U": "Unsorted"},
+  "unsorted": "U",
+  "essentials": "05",
+  "android": {"game": "05", "audio": "05", "video": "05", "image": "05", "social": "05", "news": "05", "maps": "05"},
+  "names": {
+    "04": ["io.homeassistant.companion.android*", "com.google.android.apps.chromecast.app", "com.philips.lighting.hue2", "com.samsung.android.oneconnect", "com.ring.*", "com.ubnt.*", "com.ui.*", "com.tplink.*"],
+    "02": ["com.github.android", "notion.id", "com.asana.app", "com.figma.mirror", "com.Slack"],
+    "03": ["com.instructure.candroid", "com.duolingo", "org.coursera.android", "org.khanacademy.android"],
+    "06": ["org.zotero.android", "com.amazon.kindle", "com.google.android.apps.books"]
+  },
+  "keywords": {
+    "01": "work office mail outlook calendar invoice expense meeting",
+    "02": "project projects design sketch draw cad print",
+    "03": "learn course class school university study student",
+    "04": "home house smart light lights thermostat camera security energy garden plant router wifi",
+    "05": "bank pay wallet health fitness music photo photos video travel airline hotel food shop chat weather",
+    "06": "reader books manual dictionary reference library"
+  }
+}
