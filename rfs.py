@@ -2,7 +2,8 @@
 # so the map, tags and folder moves are the same on both; behind them each top folder is a cloud remote in rclone
 # (Google Drive, OneDrive, SharePoint). Settings, in atlas.config.json:
 #   "cloud": {"rclone": "rclone", "config": "rclone.conf",
-#             "remotes": [["G:\\My Drive", "gdrive:"], ["~\\ARX Space\\ARX Space - Documents", "arx:"], ...]}
+#             "remotes": [["G:\\My Drive", "gdrive:"], ["~\\Team site\\Documents", "team:", "ro"], ...]}
+# A third item "ro" marks a remote read only here too: rfs refuses every change on it, whatever asks.
 import json, os, subprocess, time
 from datetime import datetime
 import config as cfg
@@ -12,7 +13,8 @@ CC = cfg.C.get("cloud") or {}
 RCLONE = CC.get("rclone", "rclone")
 CONF = CC.get("config") or "rclone.conf"
 CONF = CONF if os.path.isabs(CONF) else os.path.join(cfg.HERE, CONF)
-REMOTES = sorted(((W.normcase(W.normpath(a)), b) for a, b in CC.get("remotes", [])), key=lambda x: -len(x[0]))
+REMOTES = sorted(((W.normcase(W.normpath(r[0])), r[1]) for r in CC.get("remotes", [])), key=lambda x: -len(x[0]))
+READONLY = {r[1] for r in CC.get("remotes", []) if len(r) > 2 and r[2] == "ro"}
 
 
 class Missing(Exception):
@@ -85,22 +87,30 @@ def stream(path, offset=0, count=None):
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
 
+def _writable(path):
+    r = remote(path)
+    if any(r.startswith(ro) if ro.endswith(":") else (r == ro or r.startswith(ro.rstrip("/") + "/")) for ro in READONLY):
+        raise Missing("this folder is read only")
+    return r
+
+
 def mkdir(path):
-    _run(["mkdir", remote(path)])
+    _run(["mkdir", _writable(path)])
 
 
 def copy(src, dst):
-    _run(["copyto", remote(src), remote(dst)], timeout=3600)
+    _run(["copyto", remote(src), _writable(dst)], timeout=3600)
 
 
 def move(src, dst):
-    _run(["moveto", remote(src), remote(dst)], timeout=3600)
+    _run(["moveto", _writable(src), _writable(dst)], timeout=3600)
 
 
 def delete(path):
     """Google Drive keeps deleted files in its trash and OneDrive in its recycle bin, so this can be undone there."""
-    if isdir(path): _run(["purge", remote(path)], timeout=3600)
-    else: _run(["deletefile", remote(path)])
+    r = _writable(path)
+    if isdir(path): _run(["purge", r], timeout=3600)
+    else: _run(["deletefile", r])
 
 
 def sync_state(local_dir, folder, files, push_only=False):
