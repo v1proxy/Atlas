@@ -13,10 +13,16 @@
   --r3: oklch(.63 var(--c) var(--h)); --r4: oklch(.73 calc(var(--c) * .75) var(--h));
   --t1: #ffffff; --t2: #ffffff; --t3: #121212; --t4: #121212;
   --warn: #FAC4C6; --ok: #8E9096;
+  --veil: rgba(0, 0, 0, .74); --box-ink: var(--t2);
   --f-body: "IBM Plex Sans", Arial, sans-serif;
   --f-mono: "IBM Plex Mono", Consolas, monospace;
   color-scheme: dark;
 }
+/* Ivory (hold the Settings circle): black and ivory swap places: the background, text, lines, the circle and its cross. */
+body.ivory { --bg: #F3F1EC; --surface: #F3F1EC; --surface-2: #E4E1D9; --ink: #000000; --dim: #5F6166; --line: #BDBAB2;
+  --warn: #B3261E; --veil: rgba(243, 241, 236, .84); --box-ink: #000000; color-scheme: light; }
+/* The swap grows out of the circle (launcher.js), so the usual cross-fade is off. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); height: 100dvh;
@@ -29,6 +35,8 @@ button { -webkit-touch-callout: none; }
 header { display: grid; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 header .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 h1 { font: 300 22px/1 var(--f-body); margin: 0; letter-spacing: 0; white-space: nowrap; }
+#title { cursor: pointer; transition: opacity .12s ease; }                /* the name on the left: back Home */
+#title:active { opacity: .5; }
 .meta { flex: 1 1 0; min-width: 0; font: 11px/1.4 var(--f-mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .meta b { color: var(--ink); font-weight: 500; }
 .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -60,7 +68,7 @@ body[data-screen="settings"] .tools { display: none; }
 #home::before { left: 8px; right: calc(50% + 37px); }          /* the lines end where the boxes end */
 #home::after { right: 8px; left: calc(50% + 37px); }
 .box { position: relative; display: block; border: 0; border-radius: 0; margin: 0; padding: 0; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
-.box { color: var(--t2); }
+.box { color: var(--box-ink); }
 .box.top { background: var(--top-bg, var(--r3)); }                /* one color: Apps lighter, Files deeper; a gradient runs top to bottom */
 .box.bottom { background: var(--bottom-bg, var(--r2)); }
 /* Each name sits in the box's outer corner, Apps and Files on opposite corners. */
@@ -76,22 +84,18 @@ body[data-screen="settings"] .tools { display: none; }
 .hub { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; z-index: 20;
   background: var(--bg); border: 2px solid var(--ink); padding: 0; cursor: pointer; display: grid; place-items: center; touch-action: none;
   box-shadow: 0 0 0 7px var(--bg); transition: transform .15s ease; }
-.hub i { position: relative; width: 16px; height: 16px; display: block; transition: transform .2s ease; }
+.hub i { position: relative; width: 16px; height: 16px; display: block; }       /* turned by launcher.js only */
 .hub i::before, .hub i::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--ink); }
 .hub i::before { width: 16px; height: 1px; margin: -.5px 0 0 -8px; }
 .hub i::after { width: 1px; height: 16px; margin: -8px 0 0 -.5px; }
 .hub.on { transform: scale(1.08); }
 .hub.press { transform: scale(.93); }
-/* Holding turns the cross toward an ×, timed with the hold; opening, it spins while the names come out (launcher.js),
-   ending as a + or, when removing, an ×. */
-.hub.holding i { transform: rotate(45deg); transition: transform .52s linear; }
-.hub.edit i { transform: rotate(45deg); }
 
 /* ---- the dial: names only, apps toward the Apps box, files toward the Files box ------------------------------- */
 /* The names swing out of the circle onto three rings (launcher.js animates them); here: the veil, the rings' spacing
    when a name leaves, and a press. */
 .dial { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0); transition: background-color .22s ease; }
-.dial.open { background: rgba(0, 0, 0, .74); }
+.dial.open { background: var(--veil); }
 .dial.closing { pointer-events: none; }
 .dial .di { position: absolute; width: 96px; min-height: 30px; margin: -15px 0 0 -48px; display: grid; place-items: center; background: none; border: 0; padding: 3px 4px;
   color: var(--ink); cursor: pointer; font: 400 11px/1.25 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; text-align: center;
@@ -99,7 +103,8 @@ body[data-screen="settings"] .tools { display: none; }
 .dial .di.press { transform: scale(.92); }
 .dial .side, .dial .hint, .dial .edithint { opacity: 0; transition: opacity .3s ease .15s; }
 .dial.open .side, .dial.open .hint, .dial.open .edithint { opacity: 1; }
-.dial .di .nm { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-shadow: 0 0 6px #000, 0 0 2px #000; }
+.dial.closing .side, .dial.closing .hint, .dial.closing .edithint { opacity: 0; transition: opacity .15s ease; }
+.dial .di .nm { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg); }
 .dial.edit .di { color: var(--dim); }                                  /* removing: names gray, a first tap turns one red */
 .dial.edit .di.armed { color: #FF5F57; }
 .dial .di.gone { opacity: 0 !important; transform: scale(.25) !important; }
@@ -172,7 +177,9 @@ body[data-screen="settings"] .tools { display: none; }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 82dvh; overflow: auto; background: var(--surface); border-top: 1px solid var(--line);
   padding: 12px 16px calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateY(105%); transition: transform .2s ease; }
 body.sheeton .sheet { transform: none; box-shadow: 0 -10px 30px rgba(0, 0, 0, .7); }
+body.ivory.sheeton .sheet { box-shadow: 0 -10px 30px rgba(0, 0, 0, .18); }
 .scrim { position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .5); }
+body.ivory .scrim { background: rgba(0, 0, 0, .28); }
 .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 400 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 #panel { display: grid; align-content: start; gap: 14px; }
 #panel h2 { font: 300 24px/1.15 var(--f-body); margin: 0; overflow-wrap: anywhere; }
@@ -194,7 +201,7 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .path { font: 12px/1.4 var(--f-mono); color: var(--dim); overflow-wrap: anywhere; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: var(--ink); color: var(--bg); font: 400 13px var(--f-body); padding: 8px 14px; border-radius: 4px; max-width: calc(100% - 32px); }
 .banner { margin: 16px 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
-@media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, .hub i { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, #title { transition: none !important; } }
 
 /* ---- Settings ---------------------------------------------------------------------------------------------------- */
 #settings { min-height: 0; overflow: auto; overscroll-behavior: contain; }
@@ -210,8 +217,8 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
   display: grid; place-items: center; font: 500 11px var(--f-mono); color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
 .wheel .hd[hidden] { display: none; }
 /* A small Home to judge the color on: two boxes, the band with its line, the circle. */
-.mh { position: relative; width: 78px; height: 140px; display: grid; grid-template-rows: 1fr 1fr; gap: 5px; padding: 3px; background: #000; border: 1px solid var(--line); }
+.mh { position: relative; width: 78px; height: 140px; display: grid; grid-template-rows: 1fr 1fr; gap: 5px; padding: 3px; background: var(--bg); border: 1px solid var(--line); }
 .mh i { display: block; }
 .mh::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1px; margin-top: -.5px; background: var(--ink); }
-.mh b { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #000; border: 1px solid var(--ink); box-shadow: 0 0 0 2px #000; }
+.mh b { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--bg); border: 1px solid var(--ink); box-shadow: 0 0 0 2px var(--bg); }
 .btn.quit { border-color: #C8362F; color: #FAC4C6; }

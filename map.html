@@ -215,14 +215,18 @@ aside { min-height: 0; display: block; }
   .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 500 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 }
 .btn.lock { background: #C8362F; border-color: #C8362F; color: #fff; font-weight: 500; }
-/* Inside the Atlas launcher on a phone: Home instead of Devices, one tap opens, a long press offers the dial. */
-#homel { display: none; }
-body.launcher #homel { display: inline-block; }
+/* Inside the Atlas launcher on a phone: the Atlas name goes Home, no Devices, one tap opens, a long press offers the dial. */
+body.launcher header h1 { cursor: pointer; transition: opacity .12s ease; }
+body.launcher header h1:active { opacity: .5; }
 body.launcher #devices { display: none; }
 body.launcher .tonebox { display: none; }                      /* the launcher's Settings own the color */
 body.launcher .tile, body.launcher .frow, body.launcher .region .h, body.launcher .lrow, body.launcher .treesvg { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body.launcher .press { box-shadow: inset 0 0 0 2px var(--ink) !important; }
-@media (max-width: 900px) { body.launcher #homel { position: absolute; top: 6px; right: 76px; padding: 3px 10px; font-size: 12px; } }
+/* Ivory (hold the launcher's Settings circle): black and ivory swap places. */
+body.launcher.ivory { --bg: #F3F1EC; --surface: #F3F1EC; --surface-2: #E4E1D9; --ink: #000000; --dim: #5F6166; --line: #BDBAB2;
+  --hatch: rgba(0, 0, 0, .16); --warn: #B3261E; color-scheme: light; }
+body.launcher.ivory aside { box-shadow: 0 -10px 30px rgba(0, 0, 0, .18); }
+@media (max-width: 900px) { body.launcher .meta { padding-right: 84px; } }        /* only Lock sits up there now */
 .btn.lock:hover { background: #A92B25; border-color: #A92B25; }
 </style>
 </head>
@@ -243,7 +247,6 @@ body.launcher .press { box-shadow: inset 0 0 0 2px var(--ink) !important; }
       <div class="tones" id="tones" role="group" aria-label="Color" hidden></div>
     </div>
     <button type="button" class="btn" id="rescan">Rescan now</button>
-    <button type="button" class="btn" id="homel">Home</button>
     <button type="button" class="btn" id="devices">Devices</button>
     <button type="button" class="btn lock" id="lock" title="Sign this device out of Atlas">Lock</button>
   </div>
@@ -892,6 +895,7 @@ applyTone("red");
 window.atlasTheme = t => {
   if (!t || !t.a || !isFinite(t.a.h) || !isFinite(t.a.c)) return;
   launcherTheme = t; const r = document.documentElement.style;
+  document.body.classList.toggle("ivory", !!t.ivory);
   r.setProperty("--h", String(+t.a.h)); r.setProperty("--c", String(+t.a.c));
   render();
 };
@@ -899,7 +903,10 @@ if (LAUNCHER) { try { const t = launcherCall("theme"); if (t) window.atlasTheme(
 fetch("/settings", { cache: "no-store" }).then(r => r.json()).then(s => { if (!launcherTheme) applyTone(s.tone || "red"); if (s.view && s.view !== S.view) setView(s.view, false); }).catch(() => {});
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
 $("#devices").onclick = devicesPanel;
-$("#homel").onclick = () => launcherCall("home");
+if (LAUNCHER) {                                                      // the Atlas name: back to the launcher's home
+  const h1 = $("header h1"); h1.setAttribute("role", "button"); h1.tabIndex = 0; h1.title = "Home";
+  h1.onclick = () => launcherCall("home"); h1.onkeydown = e => { if (e.key === "Enter") launcherCall("home"); };
+}
 $("#lock").onclick = () => {
   const pc = /^(127\.0\.0\.1|localhost)(:|$)/.test(location.host);
   if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code.")) location.replace("/logout");

@@ -230,7 +230,7 @@ const DEF_THEME = { mode: "solid", a: { h: 27, c: .17 }, b: { h: 295, c: .15 } }
 const NAMED = { red: [27, .17], orange: [48, .15], amber: [78, .13], green: [150, .13], teal: [195, .11], blue: [255, .15], violet: [295, .15], graphite: [255, .02] };
 const themeFromTone = k => { const t = NAMED[k] || NAMED.red; return { mode: "solid", a: { h: t[0], c: t[1] }, b: { ...DEF_THEME.b } }; };
 const goodColor = x => x && isFinite(x.h) && isFinite(x.c) && x.c >= 0 && x.c <= .4;
-const validTheme = t => t && goodColor(t.a) && goodColor(t.b) ? { mode: t.mode === "gradient" ? "gradient" : "solid", a: { h: +t.a.h, c: +t.a.c }, b: { h: +t.b.h, c: +t.b.c } } : null;
+const validTheme = t => t && goodColor(t.a) && goodColor(t.b) ? { mode: t.mode === "gradient" ? "gradient" : "solid", a: { h: +t.a.h, c: +t.a.c }, b: { h: +t.b.h, c: +t.b.c }, ...(t.ivory ? { ivory: true } : {}) } : null;
 const theme = () => L.theme || (L.theme = JSON.parse(JSON.stringify(DEF_THEME)));
 const okl = (l, x) => `oklch(${l} ${x.c.toFixed(3)} ${x.h.toFixed(1)})`;
 function midColor(A, B) { const dh = ((B.h - A.h + 540) % 360) - 180; return { h: (A.h + dh / 2 + 360) % 360, c: (A.c + B.c) / 2 }; }
@@ -242,6 +242,7 @@ function boxColors(t) {
 }
 function applyTheme() {
   const t = theme(), r = document.documentElement.style, g = t.mode === "gradient";
+  document.body.classList.toggle("ivory", !!t.ivory);
   r.setProperty("--h", t.a.h.toFixed(1)); r.setProperty("--c", t.a.c.toFixed(3));
   const [top, bottom] = boxColors(t);
   r.setProperty("--top-bg", top); r.setProperty("--bottom-bg", bottom);
@@ -249,6 +250,17 @@ function applyTheme() {
   document.body.classList.toggle("gradient", g);
 }
 const saveTheme = () => savePref("theme", theme());                       // the app passes it on to Atlas in Files
+// Holding the Settings circle swaps black and ivory: background, text, lines, the circle and its cross. The new scheme
+// grows out of the circle you held.
+function flipScheme(el) {
+  L.theme = { ...theme(), ivory: !theme().ivory }; saveTheme();
+  if (!document.startViewTransition || reduced()) return applyTheme();
+  const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const R = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const vt = document.startViewTransition(applyTheme);
+  vt.ready.then(() => document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${R}px at ${x}px ${y}px)`] },
+    { duration: 560, easing: "cubic-bezier(.4, 0, .2, 1)", pseudoElement: "::view-transition-new(root)" })).catch(() => {});
+}
 function tintAt(t) {
   const th = theme(); if (th.mode !== "gradient") return null;
   t = Math.min(1, Math.max(0, t)); const dh = ((th.b.h - th.a.h + 540) % 360) - 180;
@@ -276,7 +288,6 @@ function show(screen) {
   L.screen = screen; document.body.dataset.screen = screen;
   $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
   $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
-  $("#homebtn").hidden = screen === "home";
   $("#q").placeholder = screen === "apps" ? "Find an app" : "Find an app, folder or file";
   closeSheet(); hideResults(); closeDial();
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
@@ -300,9 +311,10 @@ function launch(a, el) {
 }
 
 // ---- the dial ----------------------------------------------------------------------------------
-// The circle: one tap opens the dial (tap a name to open it). Holding it opens the dial to remove names: they are gray,
-// a first tap turns a name red, a second tap takes it off the dial. Either way the cross spins while the names come
-// out of the circle and swing onto three rings, the most used first and nearest: apps by their time in front (Android's
+// The circle: one tap opens the dial (tap a name to open it), another tap closes it. Holding it opens the dial to remove
+// names: they are gray, a first tap turns a name red, a second tap takes it off the dial. Either way the cross spins
+// while the names come out of the circle and swing onto three rings, the most used first and nearest (closing runs it
+// all in reverse): apps by their time in front (Android's
 // usage data, last 30 days; launches from Atlas without it), files and folders by the time spent after opening them here.
 const dialOpen = () => { const d = $("#dial"); return !d.hidden && !d.classList.contains("closing"); };
 let dialMode = "open", armed = null, dialT = 0;
@@ -353,7 +365,7 @@ function dialSides() {
 }
 function hubCenter() { const r = $("#hub").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
 function openDial(mode, quiet) {
-  clearTimeout(dialT);
+  clearTimeout(dialT); clearTimeout(veilT);
   dialMode = mode === "edit" ? "edit" : "open"; armed = null;
   const d = $("#dial");
   let html = "";
@@ -368,8 +380,8 @@ function openDial(mode, quiet) {
   placeDial();
   $$("#dial .di").forEach(b => pressable(b, () => tapPin(b), () => { if (dialMode !== "edit") pinSheet(pinOf(b), b.dataset.side); }));
   void d.offsetWidth; d.classList.add("open");                          // the veil fades in
-  if (quiet || reduced()) return;
-  spin(swirl(true));
+  if (quiet || reduced()) return turnCross(dialMode === "edit" ? 45 : 0, 1);
+  turnCross((dialMode === "edit" ? 45 : 0) + 360, Math.max(420, swirl(true)), SPIN_OUT);
 }
 // Where each name sits; run again after a name is removed, so the others close up (and move in a ring if they now rank higher).
 function placeDial() {
@@ -387,12 +399,14 @@ function placeDial() {
   const eh = $("#dial .edithint"); if (eh) eh.style.top = (top + 14).toFixed(0) + "px";
 }
 // The names come out of the circle and swing clockwise onto their rings, as if thrown by the spinning cross, one after
-// another by rank; closing, they swing back in together. Returns how long it takes, in ms.
+// another by rank. Closing is the same in reverse: the least used go back first, counterclockwise, into the circle.
+// Returns how long it takes, in ms.
 const STAGGER = 55, TRAVEL = 460, SWEEP = 1.1;                           // SWEEP: about 63 degrees of swing
 function swirl(out) {
-  const [cx, cy] = hubCenter(); let total = 0;
-  for (const b of $$("#dial .di")) {
-    if (b.classList.contains("gone")) continue;
+  const [cx, cy] = hubCenter(), els = $$("#dial .di").filter(b => !b.classList.contains("gone")), count = { Apps: 0, Files: 0 };
+  for (const b of els) count[b.dataset.side]++;
+  let total = 0;
+  for (const b of els) {
     b.getAnimations().forEach(x => x.cancel());
     const fx = parseFloat(b.style.left), fy = parseFloat(b.style.top), R = Math.hypot(fx - cx, fy - cy), fa = Math.atan2(fy - cy, fx - cx);
     const frames = [];
@@ -401,39 +415,45 @@ function swirl(out) {
       frames.push({ opacity: Math.min(1, u * 3),
         transform: `translate(${(cx + r * Math.cos(ang) - fx).toFixed(1)}px,${(cy + r * Math.sin(ang) - fy).toFixed(1)}px) scale(${(.3 + .7 * e).toFixed(3)})` });
     }
-    if (out) {
-      const delay = (+b.dataset.rank || 0) * STAGGER;
-      b.animate(frames, { duration: TRAVEL, delay, easing: "linear", fill: "backwards" });
-      total = Math.max(total, delay + TRAVEL);
-    } else {
-      b.animate(frames.reverse(), { duration: 240, easing: "linear", fill: "forwards" });
-      total = 240;
-    }
+    const rank = +b.dataset.rank || 0, delay = (out ? rank : count[b.dataset.side] - 1 - rank) * STAGGER;
+    b.animate(out ? frames : frames.reverse(), { duration: TRAVEL, delay, easing: "linear", fill: out ? "backwards" : "forwards" });
+    total = Math.max(total, delay + TRAVEL);
   }
   return total;
 }
-// The cross spins for as long as the names take to come out, ending as a + (or an × when removing).
+// The cross: it turns toward an × while you hold the circle, spins clockwise for as long as the names take to come out
+// (ending as a +, or an × when removing), and counterclockwise while they go back in (ending as a +).
+const SPIN_OUT = "cubic-bezier(.3, .55, .2, 1)", SPIN_IN = "cubic-bezier(.8, 0, .7, .45)";   // the second is the first, mirrored
 function crossAngle(el) {
   const m = getComputedStyle(el).transform, v = m && m.match(/matrix\(([^)]+)\)/);
   if (!v) return 0;
   const [a, b] = v[1].split(",").map(Number); return Math.atan2(b, a) * 180 / Math.PI;
 }
-function spin(ms) {
-  const i = $("#hub i"), from = crossAngle(i), to = (dialMode === "edit" ? 45 : 0) + 360;
+function turnCross(to, ms, easing) {
+  const i = $("#hub i"), from = crossAngle(i);
   i.getAnimations().forEach(x => x.cancel());
-  i.animate([{ transform: `rotate(${from.toFixed(1)}deg)` }, { transform: `rotate(${to}deg)` }], { duration: Math.max(420, ms), easing: "cubic-bezier(.3, .55, .2, 1)" });
+  i.animate([{ transform: `rotate(${from.toFixed(1)}deg)` }, { transform: `rotate(${to}deg)` }],
+    { duration: reduced() ? 1 : Math.max(1, ms), easing: easing || "linear", fill: "forwards" });
 }
 function pinOf(b) { return (b.dataset.side === "Apps" ? L.pins.apps : L.pins.files).find(p => pinId(p) === b.dataset.id); }
-// Closing: the names swing back into the circle when you dismiss the dial; at once when something opens.
+// Closing: when you dismiss the dial, the opening in reverse (the names swing back into the circle while the cross
+// spins the other way); at once when something opens.
+let veilT = 0;
 function closeDial(animated) {
-  const d = $("#dial"); clearTimeout(dialT); dialMode = "open"; armed = null;
-  $("#hub").classList.remove("on", "edit", "holding");
-  if (d.hidden) return;
+  const d = $("#dial");
+  if (d.hidden) { $("#hub").classList.remove("on", "edit"); return; }
+  if (animated && d.classList.contains("closing")) return;              // already going back in
+  clearTimeout(dialT); clearTimeout(veilT); dialMode = "open"; armed = null;
+  $("#hub").classList.remove("on", "edit");
   if (animated && !reduced()) {
-    d.classList.add("closing"); d.classList.remove("open");
-    dialT = setTimeout(() => { d.classList.remove("closing", "edit"); d.hidden = true; d.innerHTML = ""; }, swirl(false) + 20);
+    d.classList.add("closing");
+    const ms = Math.max(420, swirl(false));
+    turnCross(-360, ms, SPIN_IN);
+    veilT = setTimeout(() => d.classList.remove("open"), Math.max(0, ms - 240));      // the veil lifts as the last names go in
+    dialT = setTimeout(() => { d.classList.remove("closing", "edit", "open"); d.hidden = true; d.innerHTML = ""; }, ms + 20);
     return;
   }
+  turnCross(0, 1);
   d.classList.remove("open", "edit", "closing"); d.hidden = true; d.innerHTML = "";
 }
 function tapPin(b) {
@@ -454,9 +474,10 @@ function openPin(p) {
 (function hubControl() {
   const hub = $("#hub");
   let timer = 0, down = false, held = false;
+  const rest = () => turnCross(dialOpen() && dialMode === "edit" ? 45 : 0, 160);
   hub.addEventListener("pointerdown", e => {
     e.preventDefault(); down = true; held = false;
-    hub.classList.add("press", "holding");                              // the cross turns toward an × while you hold
+    hub.classList.add("press"); turnCross(45, 520);                      // the cross turns toward an × while you hold
     clearTimeout(timer);
     timer = setTimeout(() => { held = true; hub.classList.remove("press"); haptic("long"); openDial("edit"); }, 520);
   });
@@ -465,13 +486,12 @@ function openPin(p) {
     if (!down) return;
     down = false;
     if (held) return;                                                    // the dial stays open to remove names
-    hub.classList.remove("holding");
-    if (cancel) return;
+    if (cancel) return rest();
     if (dialOpen()) closeDial(true); else { haptic("tick"); openDial("open"); }
   };
   hub.addEventListener("pointerup", () => end(false));
   hub.addEventListener("pointercancel", () => end(true));
-  hub.addEventListener("pointerleave", () => { if (down && !held) { clearTimeout(timer); down = false; hub.classList.remove("press", "holding"); } });
+  hub.addEventListener("pointerleave", () => { if (down && !held) { clearTimeout(timer); down = false; hub.classList.remove("press"); rest(); } });
   hub.addEventListener("click", e => e.preventDefault());
   $("#dial").addEventListener("click", e => { if (e.target.id === "dial") closeDial(true); });
 })();
@@ -584,7 +604,7 @@ async function renderSettings() {
   </div>`;
   wheelControl($("#wheel"));
   $$("#o-mode button").forEach(b => b.onclick = () => { theme().mode = b.dataset.m; setSeg("#o-mode", "m", b.dataset.m); applyTheme(); saveTheme(); paintLook(); });
-  $("#o-reset").onclick = () => { L.theme = JSON.parse(JSON.stringify(DEF_THEME)); setSeg("#o-mode", "m", "solid"); applyTheme(); saveTheme(); paintLook(); };
+  $("#o-reset").onclick = () => { L.theme = { ...JSON.parse(JSON.stringify(DEF_THEME)), ...(theme().ivory ? { ivory: true } : {}) }; setSeg("#o-mode", "m", "solid"); applyTheme(); saveTheme(); paintLook(); };
   $$("#o-order button").forEach(b => b.onclick = () => { L.order = b.dataset.o; savePref("order", L.order); applyOrder(); applyTheme(); setSeg("#o-order", "o", L.order); paintLook(); });
   if ($("#o-home")) $("#o-home").onclick = () => fire("home.request");
   if ($("#o-usage")) $("#o-usage").onclick = () => fire("usage.request");
@@ -984,10 +1004,11 @@ function renderList() {
 // ---- wiring --------------------------------------------------------------------------------------------
 $("#box-apps").onclick = openApps;
 $("#box-files").onclick = openFilesView;
-$("#homebtn").onclick = goHome;
+$("#title").onclick = () => { haptic("tick"); goHome(); };                // the name on the left: back Home
+$("#title").onkeydown = e => { if (e.key === "Enter") goHome(); };
 $$("#views button").forEach(b => b.onclick = () => { L.view = b.dataset.v; L.tz = null; resetMZ(); setSeg("#views", "v", L.view); savePref("view", L.view); renderApps(); });
 $$("#metric button").forEach(b => b.onclick = () => { L.metric = b.dataset.m; resetMZ(); setSeg("#metric", "m", L.metric); savePref("metric", L.metric); renderApps(); });
-$("#tonebtn").onclick = () => show("settings");                       // the circle next to the search: Settings
+pressable($("#tonebtn"), () => show("settings"), () => flipScheme($("#tonebtn")));   // the circle by the search: Settings; hold: black or ivory
 let rt = 0;
 window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) placeDial(); if (L.screen !== "settings") refreshScreen(); }, 120); });
 

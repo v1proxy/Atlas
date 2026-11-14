@@ -56,6 +56,7 @@ class MainActivity : Activity() {
     lateinit var prefs: Prefs
     lateinit var apps: Apps
     lateinit var server: Server
+    private lateinit var root: FrameLayout
     private lateinit var home: WebView
     private lateinit var files: WebView
     private val pool = Executors.newFixedThreadPool(4)
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val ASSETS = "appassets.androidplatform.net"
+        private val IVORY = Color.rgb(0xF3, 0xF1, 0xEC)
         private const val REQ_HOME = 41
     }
 
@@ -86,9 +88,9 @@ class MainActivity : Activity() {
         } catch (e: Exception) { /* a build without settings: the address can be set from Options */ }
         server = Server { prefs.string("server", cfgServer).trimEnd('/').takeIf { it.startsWith("https://") } ?: "" }
 
-        // Black edge to edge; the system bars sit over black and the content is padded clear of them and of the keyboard.
+        // Black (or ivory) edge to edge; the system bars sit over it and the content is padded clear of them and of the keyboard.
         window.setDecorFitsSystemWindows(false)
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         root.setOnApplyWindowInsetsListener { v, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
@@ -101,8 +103,7 @@ class MainActivity : Activity() {
         root.addView(home, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         files.visibility = View.GONE
         setContentView(root)
-        window.insetsController?.setSystemBarsAppearance(0,                     // light icons on the black bars
-            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        applyScheme()
 
         home.addJavascriptInterface(HomeBridge(), "Launcher")
         home.webViewClient = HomeClient()
@@ -125,6 +126,15 @@ class MainActivity : Activity() {
     }
 
     private val homeAlias get() = ComponentName(this, "$packageName.Home")
+
+    /** Black or ivory (hold the Settings circle): the window behind the pages and the bars' icons follow the page. */
+    private fun applyScheme() = runOnUiThread {
+        val ivory = try { JSONObject(prefs.themeJson().ifEmpty { "{}" }).optBoolean("ivory") } catch (e: Exception) { false }
+        val bg = if (ivory) IVORY else Color.BLACK
+        root.setBackgroundColor(bg); home.setBackgroundColor(bg); files.setBackgroundColor(bg)
+        val dark = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (ivory) dark else 0, dark)    // dark icons on ivory, light on black
+    }
 
     /** Settings, Quit: Atlas stops being a Home screen and the phone's own launcher takes over. */
     private fun quit() = runOnUiThread {
@@ -248,7 +258,10 @@ class MainActivity : Activity() {
         "prefs.get" -> prefs.page()
         "prefs.set" -> {
             val key = a.getString("key"); prefs.setFromPage(key, a.opt("value"))
-            if (key == "theme") runOnUiThread { if (filesReady) files.evaluateJavascript("window.atlasTheme&&atlasTheme(${prefs.themeJson().ifEmpty { "null" }})", null) }
+            if (key == "theme") {
+                applyScheme()
+                runOnUiThread { if (filesReady) files.evaluateJavascript("window.atlasTheme&&atlasTheme(${prefs.themeJson().ifEmpty { "null" }})", null) }
+            }
             true
         }
         "launch" -> { launch(a); true }
