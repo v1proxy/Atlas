@@ -19,7 +19,7 @@
     ["Home Assistant", "io.homeassistant.companion.android", -1, 0, 380, 0, 190, 210], ["Tailscale", "com.tailscale.ipn", -1, 0, 300, 0, 6, 30],
     ["Google Home", "com.google.android.apps.chromecast.app", -1, 0, 500, 3, 14, 16], ["Hue", "com.philips.lighting.hue2", -1, 0, 500, 45, 2, 3],
     ["Bambu Handy", "com.bambulab.handy", -1, 0, 5, 1, 50, 31], ["LinkedIn", "com.linkedin.android", 4, 0, 600, 0, 110, 75],
-    ["Indeed", "com.indeed.android.jobsearch", -1, 0, 300, 150, 0, 0], ["GitHub", "com.github.android", -1, 0, 260, 0, 45, 40],
+    ["Podcasts", "com.google.android.apps.podcasts", 1, 0, 300, 150, 0, 0], ["GitHub", "com.github.android", -1, 0, 260, 0, 45, 40],
     ["Slack", "com.Slack", -1, 0, 400, 0, 160, 140], ["Notion", "notion.id", -1, 0, 350, 2, 30, 20], ["Lucid", "com.lucidchart.android", -1, 0, 120, 12, 9, 6],
     ["Zotero", "org.zotero.android", -1, 0, 200, 8, 22, 14], ["Canvas Student", "com.instructure.candroid", -1, 0, 420, 2, 26, 30],
     ["Zoom", "us.zoom.videomeetings", -1, 0, 500, 5, 120, 18], ["Teams", "com.microsoft.teams", -1, 0, 500, 0, 140, 95],

@@ -226,7 +226,7 @@ function meta() {
 }
 // ---- color: one color, or a gradient of two, picked on a wheel ---------------------------------------------------
 // A color is a hue (degrees) and a strength (OKLCH chroma); the four shades of the map come from it as in Atlas.
-const DEF_THEME = { mode: "solid", a: { h: 27, c: .17 }, b: { h: 295, c: .15 } };          // ARX red; the second color for gradients
+const DEF_THEME = { mode: "solid", a: { h: 27, c: .17 }, b: { h: 295, c: .15 } };          // Atlas red; the second color for gradients
 const NAMED = { red: [27, .17], orange: [48, .15], amber: [78, .13], green: [150, .13], teal: [195, .11], blue: [255, .15], violet: [295, .15], graphite: [255, .02] };
 const themeFromTone = k => { const t = NAMED[k] || NAMED.red; return { mode: "solid", a: { h: t[0], c: t[1] }, b: { ...DEF_THEME.b } }; };
 const goodColor = x => x && isFinite(x.h) && isFinite(x.c) && x.c >= 0 && x.c <= .4;
@@ -589,7 +589,7 @@ async function renderSettings() {
       <div class="wheelrow"><div class="wheel" id="wheel"><canvas></canvas><span class="hd" data-k="a">1</span><span class="hd" data-k="b">2</span></div>
         <div class="mh" id="mh" aria-hidden="true"><i class="t"></i><i class="b"></i><b></b></div></div>
       <p class="note" id="o-look"></p>
-      <div class="row"><button type="button" class="btn" id="o-reset">Back to ARX red</button></div></section>
+      <div class="row"><button type="button" class="btn" id="o-reset">Back to red</button></div></section>
     <section><h3>Layout</h3><div class="seg" id="o-order"><button type="button" data-o="apps-top" aria-pressed="${L.order !== "files-top"}">Apps on top</button><button type="button" data-o="files-top" aria-pressed="${L.order === "files-top"}">Files on top</button></div></section>
     <section><h3>Home screen</h3>${info.isDefault ? `<p class="note">Atlas is your Home screen.</p>`
       : `<p class="note">Atlas isn't your Home screen yet.</p><div class="row"><button type="button" class="btn primary" id="o-home">Make Atlas the Home screen</button></div>`}</section>

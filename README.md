@@ -141,6 +141,10 @@ Setup:
 3. On the server: `sudo bash server/install.sh`. It installs Atlas as a service and prints its address.
 4. Pair the phone: `sudo -u atlas /opt/atlas/venv/bin/python /opt/atlas/app/atlas_service.py --pair` prints a link with a one-time code.
 
+## As your Android Home screen (optional)
+
+The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. Baseline 1 (2026-11-14); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
+
 ## Security
 
 Atlas can read and change your files, so it is built to be no easier to reach than the files themselves. In short:
