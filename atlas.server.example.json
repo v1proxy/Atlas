@@ -1,0 +1,183 @@
+{
+ "_about": "Atlas on an always-on server (mode cloud). Copy to atlas.config.json on the server. Paths stay the PC's Windows paths, so the map, tags and corrections match the PC's; 'cloud.remotes' says which cloud remote holds each folder.",
+ "mode": "cloud",
+ "_home": "Your Windows user folder on the PC; ~ in the paths below means this folder.",
+ "home": "C:\\Users\\you",
+ "port": 8765,
+ "pair_code_days": 30,
+ "every_min": 30,
+ "_every_min": "How often the server lists every cloud folder again (a full listing takes a few minutes).",
+ "state_folder": "G:\\My Drive\\.atlas",
+ "_state_folder": "Tags, corrections and colors shared with Atlas on the PC: set the same folder there.",
+ "cloud": {
+  "rclone": "rclone",
+  "config": "rclone.conf",
+  "_remotes": "[folder as the PC sees it, rclone remote]. Folders on the PC only can be backed up to Google Drive (Drive for desktop, 'Other computers') and listed here from that backup.",
+  "remotes": [
+   [
+    "G:\\My Drive",
+    "gdrive:"
+   ],
+   [
+    "~\\OneDrive",
+    "onedrive:"
+   ],
+   [
+    "~\\Documents",
+    "gpc:Documents"
+   ],
+   [
+    "~\\Pictures",
+    "gpc:Pictures"
+   ],
+   [
+    "~\\Desktop",
+    "gpc:Desktop"
+   ]
+  ]
+ },
+ "_blocked": "Folders the server never lists or opens, even inside the folders below (for example an employer's).",
+ "blocked": [],
+ "_sources": "Where your files live, most specific path first. rank: which copy counts as the original when the same file is in two places (lower wins). archive: an old backup; its folders become Superseded when most files are older copies or unchanged for years.",
+ "sources": [
+  {
+   "id": "gdrive",
+   "path": "G:\\My Drive",
+   "label": "Google Drive",
+   "tag": "Drive",
+   "rank": 1
+  },
+  {
+   "id": "onedrive",
+   "path": "~\\OneDrive",
+   "label": "OneDrive",
+   "tag": "OneDrive",
+   "rank": 2
+  },
+  {
+   "id": "local",
+   "path": "~",
+   "label": "this PC",
+   "tag": "PC",
+   "rank": 3
+  }
+ ],
+ "_index": "The folders Atlas reads (names, sizes and dates only; no file is opened, so cloud files are not downloaded).",
+ "index": [
+  [
+   "gdrive",
+   "G:\\My Drive"
+  ],
+  [
+   "onedrive",
+   "~\\OneDrive"
+  ],
+  [
+   "local",
+   "~\\Desktop"
+  ],
+  [
+   "local",
+   "~\\Documents"
+  ],
+  [
+   "local",
+   "~\\Pictures"
+  ]
+ ],
+ "index_skip": [],
+ "_read_write": "Folders the file browser may change (rename, move, delete to the Recycle Bin). Their top folder itself is never changed.",
+ "read_write": [
+  "G:\\My Drive",
+  "~\\OneDrive",
+  "~\\Desktop",
+  "~\\Documents",
+  "~\\Pictures"
+ ],
+ "_read_only": "Folders the file browser may show but never change. Anything not listed in either is out of reach.",
+ "read_only": [],
+ "states": [
+  "Current",
+  "Superseded",
+  "Working"
+ ],
+ "categories": {
+  "01": "01 Work",
+  "02": "02 Projects",
+  "03": "03 Learning",
+  "04": "04 Home",
+  "05": "05 Personal",
+  "06": "06 References",
+  "U": "Unsorted"
+ },
+ "unsorted": "U",
+ "_fixed": "Folders with a place of their own. kind 'tree' links a folder as it is, read only, with its first level shown on the map (for a shared or controlled folder you must never rearrange).",
+ "fixed": [
+  {
+   "path": "~\\Desktop",
+   "source": "local",
+   "state": "Working",
+   "category": "U",
+   "why": "Desktop is work in progress"
+  },
+  {
+   "path": "~\\Downloads",
+   "source": "local",
+   "state": "Working",
+   "category": "U",
+   "why": "Downloads is work in progress"
+  }
+ ],
+ "_parents": "Where Atlas looks for folders to place: [source, folder, depth]. Depth 1 places each subfolder; depth 2 the folders one level further down.",
+ "parents": [
+  [
+   "gdrive",
+   "G:\\My Drive",
+   1
+  ],
+  [
+   "onedrive",
+   "~\\OneDrive",
+   1
+  ],
+  [
+   "local",
+   "~\\Documents",
+   1
+  ],
+  [
+   "local",
+   "~\\Pictures",
+   1
+  ]
+ ],
+ "never": [],
+ "_names": "Folder names (lower case, | between them) that always go to a category.",
+ "names": {
+  "05": "photos|camera roll|screenshots|finance|receipts|travel",
+  "06": "ebooks|manuals|fonts"
+ },
+ "name_aliases": {},
+ "skip_names": "programs|onenote notebooks|outlook files",
+ "_keywords": "Words that vote for a category when they appear in a folder's name or its files' names. After a | come two-word phrases.",
+ "keywords": {
+  "01": "client clients invoice invoices proposal proposals contract contracts meeting meetings report reports",
+  "02": "project projects prototype concept design draft drafts|side project",
+  "03": "course courses lecture lectures notes homework exam exams thesis paper papers",
+  "04": "house home rent lease mortgage utility utilities repair garden",
+  "05": "photo photos travel trip family vacation receipt receipts tax taxes bank insurance car",
+  "06": "ebook ebooks book books manual manuals datasheet datasheets reference references tutorial tutorials font fonts"
+ },
+ "_doc_numbers": "Optional: if your files carry document numbers, a regular expression for them and the category they point to.",
+ "doc_numbers": null,
+ "archive_rules": {
+  "copies": 0.5,
+  "years": 2
+ },
+ "ui": {
+  "tree_label": "Protected tree",
+  "tree_legend": "linked as is, never changed",
+  "tree_note": "Linked as it is and never rearranged.",
+  "tree_readonly_note": "Read only here: this folder is never changed from Atlas."
+ }
+}

@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/app/files.css?v=9">
+<link rel="stylesheet" href="/static/app/files.css?v=10">
 <style>
 /* IBM Plex, served from this PC (SIL Open Font License, static/vendor/fonts/OFL.txt): nothing is fetched from the internet. */
 @font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Light.woff2) format("woff2"); }
@@ -246,7 +246,7 @@ aside { min-height: 0; display: block; }
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script src="/static/app/files.js?v=9"></script>
+<script src="/static/app/files.js?v=10"></script>
 <script>
 const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
 const $ = s => document.querySelector(s);
@@ -590,7 +590,7 @@ function select(id, child) {
       <div class="row">
         <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
         ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
-        <button type="button" class="btn" id="o-src">Open the original</button>
+        ${S.data.server ? "" : `<button type="button" class="btn" id="o-src">Open the original</button>`}
       </div>
       <p class="note">${esc(UI.tree_readonly_note || "Read only here.")}</p>
       <div class="note" id="o-note" hidden></div>`;
@@ -598,7 +598,7 @@ function select(id, child) {
     const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
     const open = what => post("/open", top ? { id, what } : { id, what, child }).then(() => note("Opened in Explorer.", "ok"), e => note("Couldn't open it: " + e.message, "err"));
     if ($("#o-view")) $("#o-view").onclick = () => open("view");
-    $("#o-src").onclick = () => open("source");
+    if ($("#o-src")) $("#o-src").onclick = () => open("source");
     return;
   }
   const original = f.kind === "loose" ? f.source.slice(0, -7) : f.source;
@@ -615,7 +615,7 @@ function select(id, child) {
     <div class="row">
       <button type="button" class="btn primary" id="o-browse" ${f.offline ? "disabled" : ""}>Browse files</button>
       ${f.link ? `<button type="button" class="btn" id="o-view">Open in Atlas</button>` : ""}
-      <button type="button" class="btn" id="o-src">Open the original</button>
+      ${S.data.server ? "" : `<button type="button" class="btn" id="o-src">Open the original</button>`}
     </div>
     ${f.readonly && f.kind !== "tree" ? `<p class="note">Read only here: files can be previewed, copied and downloaded, not changed.</p>` : ""}
     <div class="note" id="o-note" hidden></div>
@@ -630,7 +630,7 @@ function select(id, child) {
   const note = (m, k) => { const n = $("#o-note"); n.hidden = false; n.textContent = m; n.className = "note " + (k || ""); };
   const open = what => post("/open", { id, what }).then(() => note("Opened in Explorer.", "ok"), e => note(e.message === "not reachable right now" ? "That folder can't be reached right now. Is its cloud drive running?" : "Couldn't open it: " + e.message, "err"));
   if ($("#o-view")) $("#o-view").onclick = () => open("view");
-  $("#o-src").onclick = () => open("source");
+  if ($("#o-src")) $("#o-src").onclick = () => open("source");
   $("#o-browse").onclick = () => browse(original);
   if ($("#mv-go")) $("#mv-go").onclick = async () => {
     try { await post("/place", { id, state: $("#mv-s").value, category: $("#mv-c").value }); note("Moved. The map updates in a few seconds.", "ok"); setTimeout(load, 2500); }
@@ -653,7 +653,7 @@ async function load() {
   try {
     const r = await fetch("/map.json", { cache: "no-store" }); const d = await r.json();
     if (!d.folders) throw new Error("empty");
-    const changed = d.generated !== S.gen; S.data = d; S.gen = d.generated;
+    const changed = d.generated !== S.gen; S.data = d; S.gen = d.generated; window.ATLAS_SERVER = !!d.server;
     S.byId = Object.fromEntries(d.folders.map(f => [f.id, f]));
     UI = d.ui || {}; SRC = UI.sources || {}; UI.tree_label = UI.tree_label || "Protected tree";
     const lg = $("#lg-tree"); lg.hidden = !d.folders.some(f => f.kind === "tree"); lg.querySelector("b").textContent = UI.tree_legend || "";
@@ -704,7 +704,7 @@ let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTime
 $("#devices").onclick = devicesPanel;
 $("#lock").onclick = () => {
   const pc = /^(127\.0\.0\.1|localhost)(:|$)/.test(location.host);
-  if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code from Atlas on the PC.")) location.replace("/logout");
+  if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code.")) location.replace("/logout");
 };
 // Phone: the details panel is a sheet that slides up whenever it has something to show.
 new MutationObserver(() => document.body.classList.toggle("sheet", !$("#panel .empty"))).observe($("#panel"), { childList: true });

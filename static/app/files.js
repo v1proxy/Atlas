@@ -55,7 +55,7 @@ function renderBrowser() {
       <button type="button" data-a="tags" ${any ? "" : "disabled"}>Tags</button>
       <button type="button" data-a="delete" ${any && !ro ? "" : "disabled"}>Delete</button>
       <button type="button" data-a="download" ${any && sel.every(e => !e.dir) ? "" : "disabled"}>Download</button>
-      <button type="button" data-a="openpc" ${one ? "" : "disabled"}>Open on PC</button>
+      ${window.ATLAS_SERVER ? "" : `<button type="button" data-a="openpc" ${one ? "" : "disabled"}>Open on PC</button>`}
       ${ro ? `<span class="ro">Read only</span>` : ""}
     </div>
     <div class="fb-msg ${FB.err ? "err" : ""}" aria-live="polite">${esc(FB.msg || `${FB.entries.length} items`)}</div>
@@ -142,8 +142,8 @@ function preview(e) {
     <dl><dt>Size</dt><dd>${fmtSize(e.size)}</dd><dt>Changed</dt><dd>${fmtDate(e.mtime)}</dd>${e.cloud ? `<dt>Stored</dt><dd>In the cloud; previewing downloads it</dd>` : ""}</dl>
     <div>${chips(e.tags)}</div>
     <div class="path"><b>Path</b>${esc(e.path)}</div>
-    <div class="row"><button type="button" class="btn primary" id="pv-open">Open on PC</button><a class="btn" href="${fileUrl(e.path, true)}" download>Download</a><button type="button" class="btn" id="pv-tags">Tags</button></div>`;
-  $("#pv-open").onclick = () => post("/api/openpath", { path: e.path }).then(() => say("Opened on the PC."), x => say(x.message, true));
+    <div class="row">${window.ATLAS_SERVER ? "" : `<button type="button" class="btn primary" id="pv-open">Open on PC</button>`}<a class="btn" href="${fileUrl(e.path, true)}" download>Download</a><button type="button" class="btn" id="pv-tags">Tags</button></div>`;
+  if ($("#pv-open")) $("#pv-open").onclick = () => post("/api/openpath", { path: e.path }).then(() => say("Opened on the PC."), x => say(x.message, true));
   $("#pv-tags").onclick = () => tagEditor([e]);
   if (can) $("#pv-big").onclick = () => viewer(e);
   if (phone) { viewer(e); return; }                 // on a phone the file opens full screen; the panel keeps the details

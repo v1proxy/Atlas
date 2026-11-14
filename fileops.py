@@ -1,10 +1,14 @@
 # fileops.py: what Atlas can do with files. Every path goes through security.guard first.
-# Delete always goes to the Recycle Bin (send2trash); nothing here deletes permanently.
-import os, json, time, shutil, hashlib, sqlite3, threading
-import send2trash
-from security import guard, readonly, check_name, Denied, HERE
+# Delete always goes to a bin: the Recycle Bin on the PC (send2trash), Drive's trash or OneDrive's recycle bin on the
+# server. Nothing here deletes permanently. On the server (mode "cloud") the same actions run through rclone (rfs.py).
+import io, os, json, time, shutil, hashlib, sqlite3, threading
+import config as cfg
+from security import guard, readonly, check_name, Denied, HERE, BLOCKED
+if cfg.CLOUD: import rfs
+else: import send2trash
+W = cfg.W
 
-TAGS = os.path.join(HERE, "tags.json")
+TAGS = os.path.join(cfg.STATE, "tags.json")
 LOG = os.path.join(HERE, "actions.log")
 CACHE = os.path.join(HERE, "cache", "thumbs")
 _lock = threading.Lock()
@@ -25,7 +29,7 @@ EXT = {e: k for k, v in KINDS.items() for e in v.split()}
 
 
 def kind(name):
-    return EXT.get(os.path.splitext(name)[1].lower().lstrip("."), "other")
+    return EXT.get(W.splitext(name)[1].lower().lstrip("."), "other")
 
 
 def log(device, action, detail):
@@ -47,12 +51,13 @@ def _save_tags(t):
 
 
 def tags_of(path):
-    return _tags()["files"].get(os.path.normcase(path), [])
+    return _tags()["files"].get(W.normcase(path), [])
 
 
 def prune_tags():
     """Forget tags of files that are gone, and tag names no file uses any more. A file whose folder can't be
-    reached right now (a cloud drive not mounted) keeps its tags."""
+    reached right now (a cloud drive not mounted) keeps its tags. The server leaves this to the PC."""
+    if cfg.CLOUD: return
     from security import ROOTS_RW, ROOTS_RO
     roots = [os.path.normcase(r) for r in ROOTS_RW + ROOTS_RO]
     def gone(p):
@@ -80,7 +85,7 @@ def set_tags(path, names, colors=None):
             c = (colors or {}).get(n)
             if c in COLORS: t["vocab"][n] = c
             t["vocab"].setdefault(n, COLORS[len(t["vocab"]) % len(COLORS)])
-        key = os.path.normcase(rp)
+        key = W.normcase(rp)
         if names: t["files"][key] = names
         else: t["files"].pop(key, None)
         _save_tags(t)
@@ -89,7 +94,7 @@ def set_tags(path, names, colors=None):
 
 def _move_tags(src, dst):
     with _lock:
-        t = _tags(); s, d = os.path.normcase(src), os.path.normcase(dst)
+        t = _tags(); s, d = W.normcase(src), W.normcase(dst)
         moved = {}
         for k, v in list(t["files"].items()):
             if k == s or k.startswith(s + "\\"):
@@ -98,17 +103,44 @@ def _move_tags(src, dst):
 
 
 # ---- reading -------------------------------------------------------------------------------
+def _hidden(name):
+    return name.lower() in ("desktop.ini", "thumbs.db") or name.startswith("~$")
+
+
+def _blocked(path):
+    return any(W.normcase(path) == W.normcase(b) for b in BLOCKED)
+
+
+def _cloud(fn):
+    """Server only: turns rclone's errors into plain answers."""
+    def wrap(*a, **k):
+        try: return fn(*a, **k)
+        except rfs.Missing as e: raise Denied(str(e))
+        except OSError as e: raise Denied("the cloud said: " + str(e))
+    return wrap
+
+
 def listdir(path):
     rp = guard(path)
-    if not os.path.isdir(rp): raise Denied("not a folder")
     t = _tags()["files"]
+    if cfg.CLOUD:
+        try: items = rfs.lsjson(rp, timeout=60)
+        except rfs.Missing as e: raise Denied(str(e))
+        except OSError: raise Denied("not a folder, or the cloud can't be reached right now")
+        out = [{"name": e["name"], "path": W.join(rp, e["name"]), "dir": e["dir"], "size": 0 if e["dir"] else e["size"],
+                "mtime": int(e["mtime"]), "kind": "folder" if e["dir"] else kind(e["name"]), "cloud": False,
+                "tags": t.get(W.normcase(W.join(rp, e["name"])), [])} for e in items
+               if not _hidden(e["name"]) and not _blocked(W.join(rp, e["name"]))][:3000]
+        out.sort(key=lambda x: (not x["dir"], x["name"].lower()))
+        return {"path": rp, "readonly": readonly(rp), "entries": out, "parent": W.dirname(rp), "server": True}
+    if not os.path.isdir(rp): raise Denied("not a folder")
     out = []
     with os.scandir(rp) as it:
         for e in it:
             try:
                 st = e.stat(follow_symlinks=False)
                 a = getattr(st, "st_file_attributes", 0)
-                if a & 0x2 or a & 0x4 or e.name.lower() in ("desktop.ini", "thumbs.db") or e.name.startswith("~$"):
+                if a & 0x2 or a & 0x4 or _hidden(e.name) or _blocked(e.path):
                     continue                            # hidden and system files stay hidden
                 isdir = e.is_dir(follow_symlinks=False)
                 out.append({"name": e.name, "path": e.path, "dir": isdir, "size": 0 if isdir else st.st_size,
@@ -123,16 +155,23 @@ def listdir(path):
 
 def text(path, limit=262144):
     rp = guard(path)
-    with open(rp, "rb") as f: b = f.read(limit + 1)
+    if cfg.CLOUD: b = _cloud(rfs.read)(rp, limit + 1)
+    else:
+        with open(rp, "rb") as f: b = f.read(limit + 1)
     return {"text": b[:limit].decode("utf-8", errors="replace"), "truncated": len(b) > limit}
 
 
 def thumb(path, size=320):
     rp = guard(path)
-    st = os.stat(rp)
-    if st.st_size > 80_000_000: raise Denied("too large to preview")
+    if cfg.CLOUD:
+        s = _cloud(rfs.stat)(rp)
+        if not s or s["dir"]: raise Denied("not a file")
+        fsize, fmtime = s["size"], s["mtime"]
+    else:
+        st = os.stat(rp); fsize, fmtime = st.st_size, st.st_mtime
+    if fsize > 80_000_000: raise Denied("too large to preview")
     os.makedirs(CACHE, exist_ok=True)
-    key = hashlib.sha1(f"{rp}|{st.st_mtime}|{st.st_size}|{size}".encode()).hexdigest()
+    key = hashlib.sha1(f"{rp}|{fmtime}|{fsize}|{size}".encode()).hexdigest()
     out = os.path.join(CACHE, key + ".jpg")
     if not os.path.exists(out):
         from PIL import Image, ImageOps
@@ -140,7 +179,7 @@ def thumb(path, size=320):
             import pillow_heif; pillow_heif.register_heif_opener()      # iPhone photos (HEIC)
         except ImportError:
             pass
-        with Image.open(rp) as im:
+        with Image.open(io.BytesIO(_cloud(rfs.read)(rp)) if cfg.CLOUD else rp) as im:
             im = ImageOps.exif_transpose(im); im.thumbnail((size, size))
             if im.mode not in ("RGB", "L"): im = im.convert("RGB")
             im.save(out, "JPEG", quality=82)
@@ -163,43 +202,59 @@ def find(q, db_path, limit=60):
 
 
 # ---- changing ------------------------------------------------------------------------------
+def _exists(p):
+    return rfs.exists(p) if cfg.CLOUD else os.path.exists(p)
+
+
+def _isdir(p):
+    return rfs.isdir(p) if cfg.CLOUD else os.path.isdir(p)
+
+
 def _unique(dst):
-    if not os.path.exists(dst): return dst
-    base, ext = os.path.splitext(dst); i = 2
-    while os.path.exists(f"{base} ({i}){ext}"): i += 1
+    if not _exists(dst): return dst
+    base, ext = W.splitext(dst); i = 2
+    while _exists(f"{base} ({i}){ext}"): i += 1
     return f"{base} ({i}){ext}"
 
 
 def rename(path, new_name, device):
     rp = guard(path, write=True); check_name(new_name)
-    dst = os.path.join(os.path.dirname(rp), new_name)
+    dst = W.join(W.dirname(rp), new_name)
     guard(dst, write=True)
-    if os.path.exists(dst) and os.path.normcase(dst) != os.path.normcase(rp): raise Denied("a file with that name is already there")
-    os.rename(rp, dst); _move_tags(rp, dst); log(device, "rename", [rp, dst])
+    if _exists(dst) and W.normcase(dst) != W.normcase(rp): raise Denied("a file with that name is already there")
+    if cfg.CLOUD: _cloud(rfs.move)(rp, dst)
+    else: os.rename(rp, dst)
+    _move_tags(rp, dst); log(device, "rename", [rp, dst])
     return dst
 
 
 def mkdir(parent, name, device):
-    rp = guard(parent); guard(os.path.join(rp, "x"), write=True); check_name(name)
-    dst = _unique(os.path.join(rp, name)); os.mkdir(dst); log(device, "mkdir", dst)
+    rp = guard(parent); guard(W.join(rp, "x"), write=True); check_name(name)
+    dst = _unique(W.join(rp, name))
+    if cfg.CLOUD: _cloud(rfs.mkdir)(dst)
+    else: os.mkdir(dst)
+    log(device, "mkdir", dst)
     return dst
 
 
 def paste(items, dest, mode, device):
     if mode not in ("copy", "move") or not isinstance(items, list) or not 0 < len(items) <= 500: raise Denied("nothing to paste")
     dd = guard(dest)
-    if not os.path.isdir(dd): raise Denied("not a folder")
-    guard(os.path.join(dd, "x"), write=True)
+    if not _isdir(dd): raise Denied("not a folder")
+    guard(W.join(dd, "x"), write=True)
     done = []
     for p in items:
         src = guard(p, write=(mode == "move"))
-        if os.path.normcase(dd) == os.path.normcase(src) or os.path.normcase(dd).startswith(os.path.normcase(src) + "\\"):
+        if W.normcase(dd) == W.normcase(src) or W.normcase(dd).startswith(W.normcase(src) + "\\"):
             raise Denied("a folder cannot go inside itself")
-        dst = os.path.join(dd, os.path.basename(src))
-        if mode == "move" and os.path.normcase(os.path.dirname(src)) == os.path.normcase(dd):
+        dst = W.join(dd, W.basename(src))
+        if mode == "move" and W.normcase(W.dirname(src)) == W.normcase(dd):
             continue
         dst = _unique(dst)
-        if mode == "copy":
+        if cfg.CLOUD:
+            _cloud(rfs.copy if mode == "copy" else rfs.move)(src, dst)
+            if mode == "move": _move_tags(src, dst)
+        elif mode == "copy":
             (shutil.copytree if os.path.isdir(src) else shutil.copy2)(src, dst)
         else:
             shutil.move(src, dst); _move_tags(src, dst)
@@ -212,10 +267,12 @@ def delete(items, device):
     if not isinstance(items, list) or not 0 < len(items) <= 500: raise Denied("nothing to delete")
     paths = [guard(p, write=True) for p in items]
     for p in paths:
-        send2trash.send2trash(p)                       # Recycle Bin, Google Drive for desktop included
+        if cfg.CLOUD: _cloud(rfs.delete)(p)            # Drive's trash, OneDrive's recycle bin
+        else: send2trash.send2trash(p)                 # Recycle Bin, Google Drive for desktop included
     log(device, "delete", paths)
     return len(paths)
 
 
 def open_on_pc(path, device):
+    if cfg.CLOUD: raise Denied("Open on PC works from Atlas on the PC")
     rp = guard(path); os.startfile(rp); log(device, "open", rp)

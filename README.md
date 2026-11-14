@@ -122,6 +122,23 @@ To remove Atlas, run `uninstall.ps1`. Your files are never touched.
 
 The phone reaches Atlas only through Tailscale, which is end-to-end encrypted. Nothing is opened on your router, and Tailscale Funnel (the public internet) is never used.
 
+## Use it with the PC switched off (optional)
+
+Atlas on the PC needs the PC on. For a phone that works any time, the same Atlas can run on a small always-on Linux server (any Ubuntu 24.04 VPS with 2 GB of memory or more) in **server mode**:
+
+- The server reads and changes your files directly in the cloud through [rclone](https://rclone.org): Google Drive, OneDrive, SharePoint. Folders that live only on the PC can be backed up to Google Drive with Drive for desktop and reached from that backup.
+- Paths stay the PC's (`G:\My Drive\...`), so the map, tags and corrections are the same on both. With `state_folder` set to the same folder in your cloud drive on both, tags, corrections and colors are shared (the newer copy wins).
+- Deletes go to Google Drive's trash or OneDrive's recycle bin. Read-only folders stay read only, and `blocked` folders are never listed or opened.
+- The server has no folder of links and no "Open on PC"; everything else works the same.
+- Nothing on the server is reachable from the internet: its firewall lets in only your tailnet, and Atlas answers through `tailscale serve` as on the PC.
+
+Setup:
+
+1. Create the server with `server/cloud-init.yaml` as its user data (cloud-init). On first boot it installs Tailscale and rclone, closes every port to the internet, and prints a Tailscale sign-in link on the server's console. Open the link and approve the server, then turn off key expiry for it in the Tailscale admin console.
+2. Copy this folder to the server, make `atlas.config.json` from `atlas.server.example.json` and an `rclone.conf` (on the PC: `rclone authorize "drive"` and `rclone authorize "onedrive"` sign you in to each service in your browser).
+3. On the server: `sudo bash server/install.sh`. It installs Atlas as a service and prints its address.
+4. Pair the phone: `sudo -u atlas /opt/atlas/venv/bin/python /opt/atlas/app/atlas_service.py --pair` prints a link with a one-time code.
+
 ## Security
 
 Atlas can read and change your files, so it is built to be no easier to reach than the files themselves. In short:
@@ -151,6 +168,8 @@ Everything that belongs to one person lives in `atlas.config.json` beside the co
 | `names`, `keywords` | Folder names that always go to a category, and words that vote for one |
 | `doc_numbers` | Optional pattern for document numbers in file names, and the category they point to |
 | `ui` | The words the map uses for a protected tree |
+| `state_folder` | Optional: a folder in your cloud drive where tags, corrections and colors are kept, shared with Atlas on a server |
+| `mode`, `home`, `cloud`, `blocked`, `every_min` | Server mode only, see [atlas.server.example.json](atlas.server.example.json) |
 
 ## How a folder gets its place
 
@@ -181,6 +200,8 @@ The tests make their own folder in Downloads and remove it at the end. They need
 | `fileops.py` | File actions, tags, previews, file search |
 | `config.py` | Reads `atlas.config.json` |
 | `map.html`, `static/` | The page, the file browser, the phone app files |
+| `rfs.py` | Server mode: file access in the cloud through rclone |
+| `server/` | Server mode: first-boot script, installer, service unit |
 | `docs/demo/` | A demo server with invented data, and the script that takes the screenshots in `docs/screenshots` |
 
 ## Credits

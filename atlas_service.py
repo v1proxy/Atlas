@@ -2,6 +2,9 @@
 # Every 10 minutes: index every source (read-only), classify every folder, update the Atlas links, write map.json.
 # Serves Atlas at http://127.0.0.1:8765 on this PC; the phone reaches it only through Tailscale (tailscale serve),
 # never through the router. Every request needs a signed-in device (see security.py).
+# With "mode": "cloud" the same service runs on an always-on Linux server: files are read and changed in the
+# cloud drives through rclone (rfs.py), there is no folder of links, and tags, corrections and settings are shared
+# with the PC through the state folder.
 import os, sys, json, time, threading, traceback, socket, mimetypes, html
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlsplit, parse_qs
@@ -15,9 +18,10 @@ import atlas_index, classify, build_view
 import security as sec
 import fileops as fo
 
-PORT, EVERY = sec.PORT, 600
-MAP, OVR, LOG = (os.path.join(HERE, f) for f in ("map.json", "overrides.json", "service.log"))
-SET = os.path.join(HERE, "settings.json")
+if cfg.CLOUD: import rfs
+PORT, EVERY = sec.PORT, int(cfg.C.get("every_min", 10)) * 60
+MAP, LOG = os.path.join(HERE, "map.json"), os.path.join(HERE, "service.log")
+OVR, SET = os.path.join(cfg.STATE, "overrides.json"), os.path.join(cfg.STATE, "settings.json")
 STATIC = os.path.join(HERE, "static")
 TONES = {"red", "orange", "amber", "green", "teal", "blue", "violet", "graphite"}
 ROOTS = {s["id"]: s["path"] for s in cfg.SOURCES}
@@ -53,16 +57,16 @@ def cycle(reindex=True):
     with LOCK:
         STATUS["running"] = True
         try:
-            missing = [r for r, p in ROOTS.items() if not os.path.isdir(p)]
+            missing = [r for r, p in ROOTS.items() if not atlas_index._reachable(p)]
             if reindex: atlas_index.main()
             prev = load_map()
             folders = classify.classify(prev, missing)
-            STATUS["build"] = build_view.build(folders, [ROOTS[r] for r in missing])
+            if not cfg.CLOUD: STATUS["build"] = build_view.build(folders, [ROOTS[r] for r in missing])
             fo.prune_tags()
             for f in folders:
-                f["link"] = link_of(f); f["readonly"] = sec.readonly(f["source"][:-7] if f["kind"] == "loose" else f["source"])
+                f["link"] = None if cfg.CLOUD else link_of(f); f["readonly"] = sec.readonly(f["source"][:-7] if f["kind"] == "loose" else f["source"])
             summ = json.load(open(os.path.join(HERE, "summary.json"), encoding="utf-8"))
-            data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "view_root": build_view.VIEW,
+            data = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "view_root": build_view.VIEW, "server": cfg.CLOUD,
                     "every_min": EVERY // 60, "missing": missing, "total_files": sum(r[2] for r in summ["roots"]),
                     "total_gb": round(sum(r[3] for r in summ["roots"]), 1), "states": classify.STATES,
                     "categories": [c for c in classify.CATS.values() if c not in cfg.TREE_CATS], "ui": UI, "folders": folders}
@@ -85,11 +89,36 @@ def schedule_refresh():
 
 def loop():
     w = cfg.C.get("wait_for")
-    if w and not os.path.isdir(w): time.sleep(90)          # give a cloud drive time to mount after sign-in
+    if w and not cfg.CLOUD and not os.path.isdir(w): time.sleep(90)     # give a cloud drive time to mount after sign-in
     while True:
         cycle(); WAKE.clear()
         STATUS["next"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() + EVERY))
         WAKE.wait(EVERY)
+
+
+def sync_state(push_only=False):
+    """Server only: share tags, corrections and settings with the PC, newest file wins. When the PC changed a
+    correction, the map is sorted again."""
+    if not (cfg.CLOUD and cfg.STATE_FOLDER): return
+    def stamp(): return {f: (os.path.getmtime(os.path.join(cfg.STATE, f)) if os.path.exists(os.path.join(cfg.STATE, f)) else 0) for f in cfg.STATE_FILES}
+    with SYNC:
+        before = stamp()
+        try: rfs.sync_state(cfg.STATE, cfg.STATE_FOLDER, cfg.STATE_FILES, push_only)
+        except Exception as e: log("state sync: " + str(e)[:200]); return
+        if stamp()["overrides.json"] != before["overrides.json"] and not STATUS["running"]:
+            threading.Thread(target=cycle, kwargs={"reindex": False}, daemon=True).start()
+
+
+def sync_loop():
+    while True:
+        sync_state(); time.sleep(60)
+
+
+def push_state():
+    if cfg.CLOUD: threading.Thread(target=sync_state, kwargs={"push_only": True}, daemon=True).start()
+
+
+SYNC = threading.Lock()
 
 
 def device_label(ua):
@@ -180,8 +209,8 @@ class Handler(BaseHTTPRequestHandler):
         if rp.endswith("sw.js"): extra = {"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"}
         self._headers(200, ct, len(b), extra); self.wfile.write(b)
 
-    def _file(self, rp, dl):
-        size = os.path.getsize(rp)
+    def _file(self, rp, dl, size=None):
+        size = os.path.getsize(rp) if size is None else size
         ext = os.path.splitext(rp)[1].lower()
         ct = "text/plain; charset=utf-8" if ext in TEXT_TYPES else (mimetypes.guess_type(rp)[0] or "application/octet-stream")
         if ext in (".mov", ".m4v"): ct = "video/mp4"
@@ -201,15 +230,22 @@ class Handler(BaseHTTPRequestHandler):
                  "Content-Disposition": f'{"attachment" if dl else "inline"}; filename="{name.encode("ascii", "replace").decode()}"'}
         if code == 206: extra["Content-Range"] = f"bytes {start}-{end}/{size}"
         self._headers(code, ct, end - start + 1, extra, csp=CSP_FILE)
+        proc = None
         try:
-            with open(rp, "rb") as f:
-                f.seek(start); left = end - start + 1
+            if cfg.CLOUD:
+                proc = rfs.stream(rp, start, end - start + 1); f = proc.stdout
+            else:
+                f = open(rp, "rb"); f.seek(start)
+            with f:
+                left = end - start + 1
                 while left > 0:
                     chunk = f.read(min(1 << 20, left))
                     if not chunk: break
                     self.wfile.write(chunk); left -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
+        finally:
+            if proc and proc.poll() is None: proc.kill()
 
     # ---- GET -------------------------------------------------------------------------------
     def do_GET(self):
@@ -246,11 +282,15 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/settings":
                 return self._send(200, open(SET, "rb").read() if os.path.exists(SET) else b'{"tone":"red"}')
             if p == "/status": return self._json(200, STATUS)
-            if p == "/api/whoami": return self._json(200, {"name": dev["name"], "kind": dev["kind"], "local": self._local(), "tailscale": sec.ts_name()}, self._renew())
+            if p == "/api/whoami": return self._json(200, {"name": dev["name"], "kind": dev["kind"], "local": self._local(), "tailscale": sec.ts_name(), "server": cfg.CLOUD}, self._renew())
             if p == "/api/ls": return self._json(200, fo.listdir(q.get("path", "")))
             if p == "/api/text": return self._json(200, fo.text(q.get("path", "")))
             if p == "/api/file":
                 rp = sec.guard(q.get("path", ""))
+                if cfg.CLOUD:
+                    st = rfs.stat(rp)
+                    if not st or st["dir"]: return self._json(404, {"error": "not a file"})
+                    return self._file(rp, q.get("dl") == "1", st["size"])
                 if not os.path.isfile(rp): return self._json(404, {"error": "not a file"})
                 return self._file(rp, q.get("dl") == "1")
             if p == "/api/thumb":
@@ -299,12 +339,13 @@ class Handler(BaseHTTPRequestHandler):
                 if "view" in body:
                     if body["view"] not in ("treemap", "tree", "list"): return self._json(400, {"error": "unknown view"})
                     cur["view"] = body["view"]
-                json.dump(cur, open(SET, "w", encoding="utf-8")); return self._json(200, {"ok": True})
+                json.dump(cur, open(SET, "w", encoding="utf-8")); push_state(); return self._json(200, {"ok": True})
             if p in ("/open", "/place"):
                 folders = {f["id"]: f for f in load_map().get("folders", [])}
                 f = folders.get(body.get("id"))
                 if not f: return self._json(404, {"error": "unknown folder"})
                 if p == "/open":
+                    if cfg.CLOUD: return self._json(400, {"error": "Opening folders works from Atlas on the PC"})
                     target = f.get("link") if body.get("what") == "view" else (f["source"][:-7] if f["kind"] == "loose" else f["source"])
                     child = body.get("child")
                     if child is not None:
@@ -322,20 +363,21 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("reset"): ovr.pop(f["source"], None)
                 else: ovr[f["source"]] = {"state": st, "category": cat, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
                 json.dump(ovr, open(OVR, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-                fo.log(who, "place", {"folder": f["source"], "state": st, "category": cat, "reset": bool(body.get("reset"))})
+                fo.log(who, "place", {"folder": f["source"], "state": st, "category": cat, "reset": bool(body.get("reset"))}); push_state()
                 threading.Thread(target=cycle, kwargs={"reindex": False}, daemon=True).start()
                 return self._json(200, {"ok": True})
             if p == "/rescan":
                 if not STATUS["running"]: threading.Thread(target=cycle, daemon=True).start()
                 return self._json(200, {"ok": True})
             if p == "/api/tag":
-                return self._json(200, {"tags": fo.set_tags(body.get("path", ""), body.get("tags") or [], body.get("colors"))})
+                r = fo.set_tags(body.get("path", ""), body.get("tags") or [], body.get("colors")); push_state()
+                return self._json(200, {"tags": r})
             if p == "/api/rename":
-                dst = fo.rename(body.get("path", ""), body.get("name", ""), who); schedule_refresh(); return self._json(200, {"path": dst})
+                dst = fo.rename(body.get("path", ""), body.get("name", ""), who); schedule_refresh(); push_state(); return self._json(200, {"path": dst})
             if p == "/api/mkdir":
                 dst = fo.mkdir(body.get("dir", ""), body.get("name", ""), who); schedule_refresh(); return self._json(200, {"path": dst})
             if p == "/api/paste":
-                done = fo.paste(body.get("items"), body.get("dest", ""), body.get("mode"), who); schedule_refresh(); return self._json(200, {"done": done})
+                done = fo.paste(body.get("items"), body.get("dest", ""), body.get("mode"), who); schedule_refresh(); push_state(); return self._json(200, {"done": done})
             if p == "/api/delete":
                 n = fo.delete(body.get("items"), who); schedule_refresh(); return self._json(200, {"deleted": n})
             if p == "/api/openpath":
@@ -358,7 +400,7 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._json(404, {"error": "not found"})
         except PermissionError:
-            self._json(403, {"error": "Windows refused: the file may be open in another program"})
+            self._json(403, {"error": "the file may be open in another program" if cfg.CLOUD else "Windows refused: the file may be open in another program"})
         except Exception:
             log("POST error: " + traceback.format_exc(limit=2)); self._json(500, {"error": "something went wrong"})
 
@@ -370,11 +412,21 @@ def main():
     finally: s.close()
     sec.local_key(); sec.ts_name()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    if cfg.CLOUD: sync_state(); threading.Thread(target=sync_loop, daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
     log(f"started, map at http://127.0.0.1:{PORT}")
     srv.serve_forever()
 
 
+def pair_cli():
+    """python3 atlas_service.py --pair: a pairing link for a phone, for a server without a screen."""
+    name = sec.ts_name()
+    if not name: print("Tailscale is not running here"); return
+    code = sec.new_pair_code(); fo.log("server console", "pair-code", name)
+    print(f"https://{name}/pair?code={code}\nThe code works once, within {sec.PAIR_DAYS} days.")
+
+
 if __name__ == "__main__":
     if "--once" in sys.argv: cycle(); print(json.dumps(STATUS))
+    elif "--pair" in sys.argv: pair_cli()
     else: main()

@@ -7,7 +7,7 @@
 #   Atlas's own page (Origin check plus a custom header that other websites cannot send).
 # - Every file path is resolved and must sit inside the folders listed in atlas.config.json:
 #   read_write folders can be changed, read_only folders can only be looked at. Nothing else is reachable.
-import os, json, time, hmac, hashlib, secrets, subprocess, threading
+import os, re, json, time, hmac, hashlib, secrets, shutil, subprocess, threading
 import config as cfg
 
 HERE = cfg.HERE
@@ -16,6 +16,8 @@ PORT = cfg.PORT
 H = cfg.HOME
 ROOTS_RW = cfg.C.get("read_write", [])
 ROOTS_RO = cfg.C.get("read_only", [])
+BLOCKED = cfg.C.get("blocked", [])          # folders Atlas never shows, inside the ones above (for example an employer's)
+W = cfg.W                                   # Windows path rules, also on a Linux server
 _lock = threading.Lock()
 _pairs = {}      # sha256(code) -> expiry time
 _fails = []      # times of failed sign-in attempts
@@ -41,8 +43,9 @@ def ts_name():
     if time.time() - _ts["at"] > 600:
         _ts["at"] = time.time()
         try:
-            out = subprocess.run([r"C:\Program Files\Tailscale\tailscale.exe", "status", "--json"],
-                                 capture_output=True, timeout=10, creationflags=0x08000000)
+            exe = r"C:\Program Files\Tailscale\tailscale.exe" if os.name == "nt" else (shutil.which("tailscale") or "tailscale")
+            out = subprocess.run([exe, "status", "--json"], capture_output=True, timeout=10,
+                                 creationflags=0x08000000 if os.name == "nt" else 0)
             _ts["name"] = json.loads(out.stdout)["Self"]["DNSName"].rstrip(".").lower() or None
         except Exception:
             pass
@@ -164,8 +167,18 @@ def use_pair_code(code):
 
 # ---- paths ---------------------------------------------------------------------------------
 def _under(p, root):
-    p, r = os.path.normcase(p), os.path.normcase(root).rstrip("\\")
+    p, r = W.normcase(p), W.normcase(root).rstrip("\\")
     return p == r or p.startswith(r + "\\")
+
+
+def _real(path):
+    """The path as it really is. On the PC links are resolved; on the server, where files live in the cloud,
+    the Windows path is normalised (.. folded away) and nothing else."""
+    if cfg.CLOUD:
+        rp = W.normpath(path)
+        if not re.match(r"^[A-Za-z]:\\", rp): raise Denied("bad path")
+        return rp
+    return os.path.realpath(os.path.abspath(path))
 
 
 def guard(path, write=False):
@@ -174,27 +187,27 @@ def guard(path, write=False):
         raise Denied("bad path")
     if path.startswith("\\\\") or path.startswith("//"):
         raise Denied("network and device paths are not allowed")
-    rp = os.path.realpath(os.path.abspath(path))
+    rp = _real(path)
     if ":" in rp[2:]:
         raise Denied("bad path")                       # NTFS alternate data streams
-    if not any(_under(rp, r) for r in ROOTS_RW + ROOTS_RO):
+    if not any(_under(rp, r) for r in ROOTS_RW + ROOTS_RO) or any(_under(rp, b) for b in BLOCKED):
         raise Denied("outside your folders")
     if write:
         if any(_under(rp, r) for r in ROOTS_RO):
             raise Denied("this folder is read only in Atlas")
-        if any(os.path.normcase(rp) == os.path.normcase(r) for r in ROOTS_RW):
+        if any(W.normcase(rp) == W.normcase(r) for r in ROOTS_RW):
             raise Denied("a top folder cannot be changed")
     return rp
 
 
 def readonly(path):
-    try: rp = os.path.realpath(path)
+    try: rp = _real(path)
     except Exception: return True
     return any(_under(rp, r) for r in ROOTS_RO)
 
 
 def root_of(path):
-    rp = os.path.realpath(path)
+    rp = _real(path)
     for r in ROOTS_RO + ROOTS_RW:
         if _under(rp, r): return r
     return None

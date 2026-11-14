@@ -8,9 +8,10 @@ from collections import defaultdict
 import config as cfg
 
 HERE = cfg.HERE
-DB, OVR = os.path.join(HERE, "index.db"), os.path.join(HERE, "overrides.json")
+DB, OVR = os.path.join(HERE, "index.db"), os.path.join(cfg.STATE, "overrides.json")
 C = cfg.C
 VIEW, STATES, CATS = cfg.VIEW, cfg.STATES, cfg.CATS
+W = cfg.W                                    # Windows paths, also when Atlas runs on a Linux server
 U = C.get("unsorted", "U")
 TAG = {s["id"]: s.get("tag", s["id"]) for s in cfg.SOURCES}
 RANK = {s["id"]: s.get("rank", i) for i, s in enumerate(cfg.SOURCES)}
@@ -25,7 +26,7 @@ KWSET = {c: (set(v.split("|")[0].split()), set(v.split("|")[1:])) for c, v in KW
 TOK = re.compile(r"[a-z0-9à-ÿ]+")
 DOCS = C.get("doc_numbers") or {}
 ARCH = C.get("archive_rules", {"copies": 0.5, "years": 2})
-NEVER = {os.path.normcase(p) for p in C.get("never", [])}
+NEVER = {W.normcase(p) for p in C.get("never", [])}
 PARENTS = [tuple(p) for p in C.get("parents", [])]
 
 
@@ -65,7 +66,7 @@ def classify(prev=None, missing_roots=()):
         try: ovr = json.load(open(OVR, encoding="utf-8"))
         except Exception: ovr = {}
     fixed = units()
-    taken = {os.path.normcase(u[0]) for u in fixed} | NEVER
+    taken = {W.normcase(u[0]) for u in fixed} | NEVER
     found = []  # (source, kind, root)
     for root, base, depth in PARENTS:
         kids, loose = set(), False
@@ -79,7 +80,7 @@ def classify(prev=None, missing_roots=()):
         for k, rel in sorted(kids):
             src = base + "\\" + rel
             if k == "loose": found.append((src + "\\|files", "loose", root)); continue
-            if os.path.normcase(src) in taken: continue
+            if W.normcase(src) in taken: continue
             found.append((src, "dir", root))
 
     # Per-folder statistics in one pass over the index
@@ -87,34 +88,34 @@ def classify(prev=None, missing_roots=()):
     for name, size, root in db.execute("SELECT lower(name), size, root FROM files"):
         k = (name, size); best[k] = min(best.get(k, 9), RANK.get(root, 9))
     allu = [(u[0], u[1], u[2]) for u in fixed] + found
-    folder = {os.path.normcase(s): i for i, (s, k, r) in enumerate(allu) if k != "loose"}
-    loosemap = {os.path.normcase(s[:-7]): i for i, (s, k, r) in enumerate(allu) if k == "loose"}
+    folder = {W.normcase(s): i for i, (s, k, r) in enumerate(allu) if k != "loose"}
+    loosemap = {W.normcase(s[:-7]): i for i, (s, k, r) in enumerate(allu) if k == "loose"}
     st = [dict(files=0, bytes=0, dup=0, newest=0.0, docs=0, votes=defaultdict(int), words=defaultdict(set), kinds=defaultdict(int))
           for _ in allu]
     for path, rel, name, size, mtime, root, docnum, kind in db.execute(
             "SELECT path, rel, lower(name), size, mtime, root, docnum, kind FROM files"):
-        np_ = os.path.normcase(path); i = loosemap.get(os.path.dirname(np_)); d = np_
+        np_ = W.normcase(path); i = loosemap.get(W.dirname(np_)); d = np_
         while i is None and len(d) > 3:
-            d = os.path.dirname(d); i = folder.get(d)
+            d = W.dirname(d); i = folder.get(d)
         if i is None: continue
         s = st[i]; s["files"] += 1; s["bytes"] += size; s["newest"] = max(s["newest"], mtime); s["kinds"][kind] += 1
         if best[(name, size)] < RANK.get(root, 9): s["dup"] += 1
         if docnum: s["docs"] += 1
         if allu[i][1] == "dir":
-            inner = os.path.relpath(path, allu[i][0])
-            for c, m in hits(tokens(os.path.splitext(inner)[0])).items():
+            inner = W.relpath(path, allu[i][0])
+            for c, m in hits(tokens(W.splitext(inner)[0])).items():
                 s["votes"][c] += 1; s["words"][c] |= m
 
     out, now = [], time.time()
-    fixmap = {os.path.normcase(u[0]): u for u in fixed}
+    fixmap = {W.normcase(u[0]): u for u in fixed}
     archive = {s["id"]: s for s in cfg.SOURCES if s.get("archive")}
     for i, (src, kind, root) in enumerate(allu):
         s = st[i]
         if s["files"] == 0 and kind != "tree": continue
         base = src[:-7] if kind == "loose" else src
-        leaf = os.path.basename(base)
+        leaf = W.basename(base)
         lname = leaf.lower()
-        fu = fixmap.get(os.path.normcase(src))
+        fu = fixmap.get(W.normcase(src))
         if kind == "loose": name = f"{leaf} loose files ({TAG.get(root, root)})"
         elif kind == "tree": name = cfg.UI.get("tree_label", "Protected tree")
         elif fu and fu[4]: name = fu[4]
@@ -166,7 +167,7 @@ def classify(prev=None, missing_roots=()):
         if o["kind"] != "tree": continue
         kids = defaultdict(lambda: [0, 0, 0.0])
         for (path, size, mtime) in db.execute("SELECT path, size, mtime FROM files WHERE path LIKE ? || '%'", (o["source"] + "\\",)):
-            p = os.path.relpath(path, o["source"]).split("\\")
+            p = W.relpath(path, o["source"]).split("\\")
             child = p[0] if len(p) > 1 else "(files at the top)"
             k = kids[child]; k[0] += 1; k[1] += size; k[2] = max(k[2], mtime)
         o["children"] = [{"name": n, "files": v[0], "gb": round(v[1] / 1e9, 3),

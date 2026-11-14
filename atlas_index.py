@@ -2,15 +2,17 @@
 # Reads names, sizes, dates and attributes from directory listings only. No file is
 # opened, so cloud-only files in Google Drive and OneDrive are never downloaded.
 # Output: index.db (SQLite), index.log, summary.json, all in this folder.
+# On the server (mode "cloud") the same listing comes from rclone, one recursive listing per top folder.
 import os, re, sqlite3, time, json
 import config as cfg
+W = cfg.W
 
 HERE = cfg.HERE
 DB, TMP = os.path.join(HERE, "index.db"), os.path.join(HERE, "index.tmp.db")
 LOG = os.path.join(HERE, "index.log")
 
 ROOTS = [tuple(r) for r in cfg.C["index"]]                       # (source id, folder), from atlas.config.json
-SKIP_PATHS = {os.path.normcase(p) for p in cfg.C.get("index_skip", [])}
+SKIP_PATHS = {W.normcase(p) for p in cfg.C.get("index_skip", []) + cfg.C.get("blocked", [])}
 SKIP_DIRS = {"node_modules", "__pycache__", "$recycle.bin", "system volume information", "venv"}
 SKIP_FILE = re.compile(r"^(desktop\.ini|thumbs\.db|~\$.*|\.~lock.*|.*\.tmp)$", re.I)
 _dn = (cfg.C.get("doc_numbers") or {}).get("pattern")
@@ -37,6 +39,36 @@ def log(m):
     with open(LOG, "a", encoding="utf-8") as f:
         f.write(time.strftime("%Y-%m-%dT%H:%M:%S  ") + m + "\n")
 
+def files(root):
+    """(path, name, size, mtime, attributes) for every file under root; (None, (path, error)) when a folder fails."""
+    if cfg.CLOUD:
+        yield from _cloud_files(root); return
+    for e, st in walk(root):
+        if e is None: yield None, st
+        else: yield e.path, e.name, st.st_size, st.st_mtime, getattr(st, "st_file_attributes", 0)
+
+
+def _cloud_files(root):
+    import rfs
+    skip = [W.normcase(s) for s in SKIP_PATHS if W.normcase(s).startswith(W.normcase(root) + "\\")]
+    extra = ["--exclude", ".*/**", "--exclude", "{" + ",".join(sorted(SKIP_DIRS)) + "}/**"]
+    for s in skip:
+        extra += ["--exclude", "/" + s[len(W.normcase(root)) + 1:].replace("\\", "/") + "/**"]
+    try:
+        items = rfs.lsjson(root, recursive=True, files_only=True, extra=["--ignore-case"] + extra, timeout=4 * 3600)
+    except Exception as x:
+        yield None, (root, str(x)[:300]); return
+    for e in items:
+        if e["dir"]: continue
+        parts = e["rel"].split("\\")
+        name = parts[-1]
+        if any(p.startswith(".") or p.lower() in SKIP_DIRS for p in parts[:-1]): continue
+        if name.startswith(".") or SKIP_FILE.match(name): continue
+        path = W.join(root, e["rel"])
+        if any(W.normcase(path).startswith(s + "\\") for s in skip): continue
+        yield path, name, e["size"], e["mtime"], 0
+
+
 def walk(root):
     stack = [root]
     while stack:
@@ -59,6 +91,15 @@ def walk(root):
         except OSError as x:
             yield None, (d, str(x))
 
+def _reachable(root):
+    if not cfg.CLOUD: return os.path.isdir(root)
+    import rfs
+    try: rfs.remote(root); return True
+    except rfs.Missing:                      # a source like the user folder: reachable when folders inside it are
+        r = W.normcase(W.normpath(root)).rstrip("\\")
+        return any(p.startswith(r + "\\") for p in rfs.roots())
+
+
 def main():
     t0 = time.time()
     if os.path.exists(TMP): os.remove(TMP)
@@ -70,19 +111,19 @@ def main():
       CREATE TABLE roots(root TEXT, path TEXT, files INTEGER, bytes INTEGER, seconds REAL);""")
     log("start")
     for tag, root in ROOTS:
-        if not os.path.isdir(root):
+        if not _reachable(root):
             log(f"missing root {root}"); continue
         t1, n, b, rows = time.time(), 0, 0, []
-        for e, st in walk(root):
-            if e is None:
-                db.execute("INSERT INTO errors VALUES(?,?)", st); continue
-            name = e.name; ext = os.path.splitext(name)[1].lower().lstrip(".")
+        for f in files(root):
+            if f[0] is None:
+                db.execute("INSERT INTO errors VALUES(?,?)", f[1]); continue
+            path, name, size, mtime, a = f
+            ext = W.splitext(name)[1].lower().lstrip(".")
             m, r = DOCNUM.search(name), REV.search(name)
-            a = getattr(st, "st_file_attributes", 0)
-            rows.append((tag, e.path, os.path.relpath(e.path, root), name, ext, EXT2KIND.get(ext, "other"),
-                         st.st_size, st.st_mtime, a, 1 if a & CLOUD else 0,
+            rows.append((tag, path, W.relpath(path, root), name, ext, EXT2KIND.get(ext, "other"),
+                         size, mtime, a, 1 if a & CLOUD else 0,
                          m.group(0) if m else None, m.group(1) if m else None, r.group(1) if r else None))
-            n += 1; b += st.st_size
+            n += 1; b += size
             if len(rows) >= 2000:
                 db.executemany("INSERT INTO files VALUES(NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows); rows = []
             if n % 20000 == 0: log(f"{tag} {n} files")
