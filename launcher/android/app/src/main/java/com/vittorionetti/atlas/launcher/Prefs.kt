@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * What the launcher keeps on the phone: the speed dial, your moves on the Apps map, the layout and color,
+ * What the launcher keeps on the phone: the dial, your moves on the Apps map, the layout and color,
  * and when you opened each app from Atlas (for sizing apps when Android's usage data is off).
  * Each value is stored as JSON inside a one-element array, so strings, numbers and objects all round-trip.
  */
@@ -45,7 +45,7 @@ class Prefs(ctx: Context) {
     fun flag(key: String): Boolean = synchronized(lock) { read(key) == true }
     fun setFlag(key: String, on: Boolean) = synchronized(lock) { write(key, on) }
 
-    // ---- the speed dial's files, changed from Atlas's own page (Files) ----------------------------------
+    // ---- the dial's files, changed from Atlas's own page (Files) ----------------------------------
     private fun pins(): JSONObject {
         val p = read("pins") as? JSONObject ?: JSONObject()
         if (p.optJSONArray("apps") == null) p.put("apps", JSONArray())

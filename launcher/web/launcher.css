@@ -54,41 +54,39 @@ input[type=search]:focus { border-color: var(--dim); }
 .crumbs span { color: var(--dim); }
 body:not([data-screen="apps"]) .only-apps { display: none !important; }
 
-/* ---- home: two boxes and the circle on the line between them ------------------------------------ */
-#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 2px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+/* ---- home: two boxes, a black band between them and the circle on it ------------------------------------ */
+#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
 .box { position: relative; display: block; border: 0; border-radius: 0; margin: 0; padding: 0; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
 .box.apps { background: var(--r3); color: var(--t3); }
 .box.files { background: var(--r2); color: var(--t2); }
-.box .mini { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.box .mini rect { fill: none; stroke: currentColor; stroke-opacity: .18; stroke-width: 1; }
-.box .lbl { position: absolute; left: 16px; top: 12px; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; }
-.box .v { position: absolute; left: 18px; top: 66px; right: 16px; font: 12px/1.45 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.box.files .lbl { top: auto; bottom: 34px; }
-.box.files .v { top: auto; bottom: 14px; }
+/* Each name sits in the box's outer corner, Apps and Files on opposite corners. */
+.box .lbl { position: absolute; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; }
+.box .v { position: absolute; max-width: calc(100% - 34px); font: 12px/1.45 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.box.top .lbl { top: 12px; } .box.top .v { top: 66px; }
+.box.bottom .lbl { bottom: 34px; } .box.bottom .v { bottom: 14px; }
+.box.apps .lbl, .box.apps .v { right: 16px; text-align: right; }
+.box.files .lbl, .box.files .v { left: 16px; }
 .box:active { filter: brightness(1.06); }
-#home.files-top .box.files .lbl { top: 12px; bottom: auto; } #home.files-top .box.files .v { top: 66px; bottom: auto; }
-#home.files-top .box.apps .lbl { top: auto; bottom: 34px; } #home.files-top .box.apps .v { top: auto; bottom: 14px; }
 
+/* The circle: a black disc on the band, a white ring, a small white cross. */
 .hub { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; z-index: 20;
   background: var(--bg); border: 2px solid var(--ink); padding: 0; cursor: pointer; display: grid; place-items: center; touch-action: none;
-  box-shadow: 0 0 0 6px var(--bg); transition: transform .15s ease; }
-.hub span { width: 22px; height: 22px; border-radius: 50%; background: var(--r3); transition: transform .15s ease; }
+  box-shadow: 0 0 0 7px var(--bg); transition: transform .15s ease; }
+.hub i { position: relative; width: 16px; height: 16px; display: block; }
+.hub i::before, .hub i::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--ink); }
+.hub i::before { width: 16px; height: 2px; margin: -1px 0 0 -8px; }
+.hub i::after { width: 2px; height: 16px; margin: -8px 0 0 -1px; }
 .hub.on { transform: scale(1.08); }
-.hub.on span { transform: scale(.55); background: var(--ink); }
 
-/* ---- the speed dial --------------------------------------------------------------------------------- */
-.dial { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, .72); }
-.dial .di { position: absolute; width: 60px; margin: -30px 0 0 -30px; display: grid; justify-items: center; gap: 3px; background: none; border: 0; padding: 0; color: var(--ink); cursor: pointer;
+/* ---- the dial: names only, apps toward the Apps box, files toward the Files box ------------------------------- */
+.dial { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, .74); }
+.dial .di { position: absolute; width: 86px; min-height: 30px; margin: -15px 0 0 -43px; display: grid; place-items: center; background: none; border: 0; padding: 3px 4px;
+  color: var(--ink); cursor: pointer; font: 400 11px/1.25 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; text-align: center;
   opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.4); transition: opacity .16s ease, transform .2s cubic-bezier(.2, .9, .3, 1.2); }
 .dial.open .di { opacity: 1; transform: none; }
-.dial .di .disc { width: 56px; height: 56px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; overflow: hidden; transition: transform .1s ease, border-color .1s; }
-.dial .di .disc img { width: 40px; height: 40px; object-fit: contain; }
-.dial .di .disc img.th { width: 100%; height: 100%; object-fit: cover; }
-.dial .di .disc .ext { font: 500 12px var(--f-mono); color: var(--ink); text-transform: uppercase; letter-spacing: .04em; }
-.dial .di .disc .fold { width: 26px; height: 20px; background: var(--r3); clip-path: polygon(0 0, 42% 0, 52% 18%, 100% 18%, 100% 100%, 0 100%); }
-.dial .di .nm { max-width: 76px; font: 10px/1.2 var(--f-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 6px #000; }
-.dial .di.hot .disc { transform: scale(1.22); border: 2px solid var(--ink); }
-.dial .say { position: absolute; left: 0; right: 0; text-align: center; font: 300 22px/1.2 var(--f-body); color: var(--ink); pointer-events: none; text-shadow: 0 0 10px #000; padding: 0 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dial .di .nm { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-shadow: 0 0 6px #000, 0 0 2px #000; }
+.dial .di.hot { background: var(--ink); color: var(--bg); }
+.dial .di.hot .nm { text-shadow: none; }
 .dial .hint { position: absolute; left: 24px; right: 24px; text-align: center; font: 12px/1.5 var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: .05em; pointer-events: none; }
 .dial .side { position: absolute; left: 0; right: 0; text-align: center; font: 11px var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: .08em; pointer-events: none; }
 
@@ -109,9 +107,6 @@ body:not([data-screen="apps"]) .only-apps { display: none !important; }
 .tile.a3 { background-color: var(--r3); color: var(--t3); } .tile.a4 { background-color: var(--r4); color: var(--t4); }
 .tile .n { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .v { font: 400 11px/1.2 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; max-width: 100%; }
-.tile .ai { width: 24px; height: 24px; flex: none; object-fit: contain; }
-.tile.big .ai { width: 36px; height: 36px; }
-.tile.ic { padding: 0; align-items: center; justify-content: center; }
 .tile.nolab { padding: 0; }
 .tile.sel { box-shadow: inset 0 0 0 3px var(--ink); z-index: 2; }
 .tile.dim { opacity: .2; }
@@ -141,16 +136,13 @@ body:not([data-screen="apps"]) .only-apps { display: none !important; }
 .lrow .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lrow .car { width: 12px; flex: none; color: var(--dim); }
 .lrow .num { font: 12px var(--f-mono); color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
-.lrow img { width: 24px; height: 24px; flex: none; }
 .lrow.hit .t { text-decoration: underline; }
 .lhead { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); cursor: default; }
 
 /* ---- search results on the home screen ------------------------------------------------------------- */
 .results { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--bg); overflow: auto; padding: 4px 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
 .results h3 { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 14px 0 4px; }
-.results .r { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); padding: 8px 0; font: 15px var(--f-body); cursor: pointer; }
-.results .r img { width: 32px; height: 32px; }
-.results .r .ext { width: 32px; height: 32px; display: grid; place-items: center; background: var(--surface-2); font: 500 10px var(--f-mono); color: var(--dim); text-transform: uppercase; }
+.results .r { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); padding: 9px 0; font: 15px var(--f-body); cursor: pointer; }
 .results .r .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .results .r small { display: block; font: 11px var(--f-mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .results .r .num { font: 11px var(--f-mono); color: var(--dim); }
@@ -163,8 +155,7 @@ body.sheeton .sheet { transform: none; box-shadow: 0 -10px 30px rgba(0, 0, 0, .7
 .scrim { position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .5); }
 .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 400 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 #panel { display: grid; align-content: start; gap: 14px; }
-#panel h2 { font: 300 24px/1.15 var(--f-body); margin: 0; overflow-wrap: anywhere; display: flex; align-items: center; gap: 12px; }
-#panel h2 img { width: 44px; height: 44px; flex: none; }
+#panel h2 { font: 300 24px/1.15 var(--f-body); margin: 0; overflow-wrap: anywhere; }
 .chip { font: 400 11px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; background: var(--surface-2); color: var(--ink); width: fit-content; }
 .why { font-size: 14px; }
 .why small { display: block; color: var(--dim); font-size: 12px; }

@@ -43,12 +43,12 @@ import kotlin.math.roundToInt
  * The Atlas launcher: Android's Home screen.
  *
  * Two WebViews share the screen, one shown at a time:
- *  - home:  the launcher's own page (frame, Apps and Files boxes, the speed dial, the Apps map), served from inside
+ *  - home:  the launcher's own page (frame, Apps and Files boxes, the dial, the Apps map), served from inside
  *           the app at https://appassets.androidplatform.net. It never touches the network: apps come from Android and
  *           Atlas data comes through [Server], both via the "Launcher" bridge.
  *  - files: Atlas itself, from your Atlas server over Tailscale, signed in as this launcher. Atlas sees the
  *           "AtlasLauncher" bridge and switches to launcher mode (a Home button, one tap opens, a long press adds to
- *           the speed dial).
+ *           the dial).
  */
 class MainActivity : Activity() {
     lateinit var prefs: Prefs
@@ -128,7 +128,7 @@ class MainActivity : Activity() {
         settings.textZoom = 100
         settings.mediaPlaybackRequiresUserGesture = true
         webChromeClient = WebChromeClient()                 // Atlas's confirm and prompt dialogs (Delete, New folder, Rename, Lock)
-        // A long press belongs to the page (the speed dial, details): no text selection, no link menu.
+        // A long press belongs to the page (the dial, details): no text selection, no link menu.
         setOnLongClickListener { true }
         isHapticFeedbackEnabled = true
         overScrollMode = View.OVER_SCROLL_NEVER

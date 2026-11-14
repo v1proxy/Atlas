@@ -3,8 +3,8 @@
 Atlas as an Android phone's Home screen. A frame like Atlas on top, then the screen split into two boxes, **Apps** and **Files**, with a circle on the line between them.
 
 - **Tap a box** to open its Atlas map: Treemap, Tree or List. Apps are sorted the Atlas way, into Current, Superseded and Working and into your own categories; Files is Atlas itself, from your Atlas server.
-- **Hold the circle** for the speed dial: your pinned apps fan out into the Apps box and your pinned files into the Files box. Slide to one and let go to open it, or let go first and tap.
-- **Everywhere, one tap opens and a long press offers more**, including Add to speed dial: on an app, a folder, or a file.
+- **Hold the circle** for the dial: your pinned apps fan out into the Apps box and your pinned files into the Files box. Slide to one and let go to open it, or let go first and tap.
+- **Everywhere, one tap opens and a long press offers more**, including Add to dial: on an app, a folder, or a file.
 
 ## How apps are placed
 
@@ -14,7 +14,7 @@ States follow use: **Working** is new (installed in the last two weeks) or not s
 
 ## How it works
 
-The app holds two pages. The home page (frame, boxes, speed dial, Apps map) is built into the app and never goes on the network: apps come from Android, and Atlas data comes through the app, signed in to Atlas the same way the Files page is. The Files page is Atlas from your server over Tailscale, which sees the launcher and switches to launcher mode (a Home button instead of Devices, one tap opens a folder, a long press offers the speed dial). Atlas's own security is unchanged: the launcher is one more signed-in device, listed in Devices as "Android launcher", and signs out with Lock.
+The app holds two pages. The home page (frame, boxes, dial, Apps map) is built into the app and never goes on the network: apps come from Android, and Atlas data comes through the app, signed in to Atlas the same way the Files page is. The Files page is Atlas from your server over Tailscale, which sees the launcher and switches to launcher mode (a Home button instead of Devices, one tap opens a folder, a long press offers the dial). Atlas's own security is unchanged: the launcher is one more signed-in device, listed in Devices as "Android launcher", and signs out with Lock.
 
 | File | Role |
 |---|---|

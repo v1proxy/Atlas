@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Atlas launcher preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0b; overflow: hidden; overscroll-behavior: none; }
+  body { display: grid; place-items: center; font: 14px/1.4 Arial, sans-serif; color: #F3F1EC; -webkit-user-select: none; user-select: none; }
+  #phone { position: relative; width: 412px; height: min(892px, calc(100dvh - 24px)); background: #000; border: 1px solid #45474D; border-radius: 28px; overflow: hidden;
+    display: grid; grid-template-rows: minmax(0, 1fr) 48px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  @media (max-width: 520px) { body { place-items: stretch; } #phone { width: 100%; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; } }
+  #screen { position: relative; min-height: 0; }
+  #screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  #files { visibility: hidden; pointer-events: none; z-index: 1; }
+  #files.on { visibility: visible; pointer-events: auto; z-index: 3; }
+  #home { z-index: 2; }
+  #app { position: absolute; inset: 0; z-index: 5; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; }
+  #app[hidden] { display: none; }
+  #app img { width: 96px; height: 96px; }
+  #app h2 { font-weight: 300; font-size: 28px; margin: 18px 0 8px; }
+  #app p { color: #8E9096; max-width: 18rem; margin: 0 auto; }
+  nav { display: flex; justify-content: center; gap: 72px; align-items: center; background: #000; border-top: 1px solid #1d1d1f; }
+  nav button { width: 56px; height: 40px; background: none; border: 0; color: #c9c7c2; font-size: 22px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  nav button:active { color: #fff; }
+  #toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 9; background: #F3F1EC; color: #000; padding: 8px 14px; border-radius: 4px; font-size: 13px; max-width: calc(100% - 32px); text-align: center; }
+  #toast[hidden] { display: none; }
+  nav { position: relative; }
+  #tag { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font: 9px/1.3 monospace; letter-spacing: .06em; color: #6d6f75; text-transform: uppercase; pointer-events: none; max-width: 92px; }
+</style>
+</head>
+<body>
+<div id="phone">
+  <div id="screen">
+    <iframe id="home" src="launcher.html" title="Atlas launcher, home"></iframe>
+    <iframe id="files" src="atlas.html" title="Atlas, files"></iframe>
+    <div id="app" hidden><div><img alt="" id="app-ic"><h2 id="app-nm"></h2><p>In the real launcher this is the app itself. Home or Back brings you back.</p></div></div>
+    <div id="toast" hidden></div>
+  </div>
+  <nav aria-label="Android buttons"><span id="tag">Preview, sample apps and files</span><button type="button" id="b-back" aria-label="Back">◁</button><button type="button" id="b-home" aria-label="Home">○</button></nav>
+</div>
+<script>
+// The preview stands in for Android and for your Atlas server: sample apps (letter icons), invented folders and files.
+// Your pins, moves and settings are kept in this browser only.
+(function () {
+  const $ = s => document.querySelector(s);
+  const home = $("#home"), files = $("#files");
+  const hw = () => home.contentWindow, fw = () => files.contentWindow;
+  const KEY = "atlas-launcher-preview";
+  let prefs = { pins: { apps: [], files: [] }, over: {}, order: "apps-top", tone: "red", view: "treemap", metric: "use", usage: true };
+  try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) prefs = Object.assign(prefs, s); } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (e) {} };
+  let data = null;
+  const load = () => data || (data = Promise.all(["data/map.json", "data/listings.json", "data/files.json"].map(u => fetch(u).then(r => r.json())))
+    .then(([map, listings, index]) => ({ map, listings, index })));
+  let toastT = 0;
+  const toast = m => { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); };
+  const event = ev => { try { hw().onLauncherEvent && hw().onLauncherEvent(ev); } catch (e) {} };
+  let filesOn = false;
+  const showFiles = () => { $("#app").hidden = true; files.classList.add("on"); filesOn = true; };
+  const goHome = () => { $("#app").hidden = true; files.classList.remove("on"); filesOn = false; event({ type: "home" }); };
+  window.PREVIEW = {
+    data: load, toast,
+    prefs: () => JSON.parse(JSON.stringify(prefs)),
+    set(key, value) { prefs[key] = value; save(); },
+    usage: () => prefs.usage,
+    setUsage(on) { prefs.usage = on; save(); event({ type: "apps" }); },
+    isPinnedFile: p => prefs.pins.files.some(x => x.path === p),
+    togglePinFile(it) {
+      const l = prefs.pins.files, i = l.findIndex(x => x.path === it.path);
+      if (i >= 0) l.splice(i, 1); else if (l.length >= 10) return "full"; else l.push({ path: it.path, name: it.name, dir: !!it.dir, kind: it.kind || "" });
+      save(); event({ type: "pins" }); return i >= 0 ? "removed" : "added";
+    },
+    setTone(k) { prefs.tone = k; save(); try { fw().applyTone && fw().applyTone(k); } catch (e) {} try { hw().applyTone && hw().applyTone(k); } catch (e) {} },
+    showFiles, home: goHome,
+    openFile(path, dir) { showFiles(); const go = () => { try { if (fw().atlasOpen) { fw().atlasOpen(path, dir); return; } } catch (e) {} setTimeout(go, 200); }; go(); },
+    launch(label, icon) { $("#app-ic").src = icon; $("#app-nm").textContent = label; $("#app").hidden = false; },
+    haptic(k) { try { navigator.vibrate && navigator.vibrate(k === "tick" ? 6 : 22); } catch (e) {} },
+  };
+  $("#b-home").onclick = goHome;
+  $("#b-back").onclick = () => {
+    if (!$("#app").hidden) { $("#app").hidden = true; return; }
+    if (filesOn) { let used = false; try { used = fw().atlasBack ? fw().atlasBack() : false; } catch (e) {} if (!used) goHome(); return; }
+    try { hw().launcherBack && hw().launcherBack(); } catch (e) {}
+  };
+})();
+</script>
+</body>
+</html>

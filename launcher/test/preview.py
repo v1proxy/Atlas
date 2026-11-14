@@ -1,5 +1,5 @@
 # preview.py: runs the launcher page in Chromium at phone size against the stand-in for Android (mock.js) and
-# takes screenshots of the home screen, the speed dial, the Apps map and the details sheet.
+# takes screenshots of the home screen, the dial, the Apps map and the details sheet.
 #   python launcher/test/preview.py [rules.json] [map.json]      shots go to launcher/test/shots
 import json, os, shutil, sys, threading, functools, http.server
 from playwright.sync_api import sync_playwright
@@ -42,7 +42,7 @@ with sync_playwright() as p:
     hub = pg.locator("#hub").bounding_box(); cx, cy = hub["x"] + hub["width"] / 2, hub["y"] + hub["height"] / 2
     pg.mouse.move(cx, cy); pg.mouse.down(); pg.wait_for_timeout(500)
     first = pg.locator("#dial .di").nth(0).bounding_box()
-    pg.mouse.move(first["x"] + 30, first["y"] + 28, steps=6); pg.wait_for_timeout(300)
+    pg.mouse.move(first["x"] + first["width"] / 2, first["y"] + first["height"] / 2, steps=6); pg.wait_for_timeout(300)
     pg.screenshot(path=os.path.join(SHOTS, "2-dial.png"))
     pg.mouse.up(); pg.wait_for_timeout(200)
     log = pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').map(x => x[1].key)")

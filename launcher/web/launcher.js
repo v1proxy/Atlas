@@ -1,5 +1,5 @@
 // Atlas launcher: the phone's home screen. A frame like Atlas, two boxes (Apps and Files), and a circle on the line
-// between them that opens the speed dial while you hold it. Apps open as an Atlas map of every app on the phone;
+// between them that opens the dial while you hold it. Apps open as an Atlas map of every app on the phone;
 // Files open Atlas itself, from your Atlas server.
 // This page never talks to the network: apps come from Android and files from your Atlas server, both through
 // the app (window.Launcher), which signs in to Atlas for it.
@@ -57,8 +57,6 @@ window.__native = (id, ok, json) => {
 };
 const fire = (m, a) => { native(m, a).catch(() => {}); };
 const haptic = k => fire("haptic", { k });
-const iconUrl = key => window.LauncherMock ? window.LauncherMock.icon(key) : "native/icon?" + new URLSearchParams({ k: key });
-const thumbUrl = p => window.LauncherMock ? window.LauncherMock.thumb(p) : "native/server/api/thumb?" + new URLSearchParams({ path: p });
 async function server(path) {
   const r = await native("server", { path });
   if (r.status === 401) throw new Error("not signed in");
@@ -238,9 +236,10 @@ function closeTones() { $("#tones").hidden = true; $("#tonebtn").setAttribute("a
 
 // ---- home: the two boxes -----------------------------------------------------------------------------
 function applyOrder() {
-  const home = $("#home"), apps = $("#box-apps"), files = $("#box-files");
-  home.classList.toggle("files-top", L.order === "files-top");
-  if (L.order === "files-top") home.insertBefore(files, apps); else home.insertBefore(apps, files);
+  const home = $("#home"), apps = $("#box-apps"), files = $("#box-files"), filesTop = L.order === "files-top";
+  if (filesTop) home.insertBefore(files, apps); else home.insertBefore(apps, files);
+  apps.classList.toggle("top", !filesTop); apps.classList.toggle("bottom", filesTop);
+  files.classList.toggle("top", filesTop); files.classList.toggle("bottom", !filesTop);
 }
 function renderHome() {
   const n = L.apps.length, used = L.apps.filter(usedRecently).length;
@@ -248,19 +247,7 @@ function renderHome() {
   $("#v-files").textContent = L.files ? `${fmtN(L.files.total_files)} files · ${fmtGB(L.files.total_gb)} · ${fmtN(L.files.folders)} folders`
     : L.filesErr === "not signed in" ? "Not signed in to Atlas yet: tap to sign in"
     : L.filesErr ? "Can't reach Atlas right now. Is Tailscale on?" : "Asking Atlas";
-  const byCat = {};
-  for (const a of L.apps) byCat[a.category] = (byCat[a.category] || 0) + 1;
-  mini($("#box-apps .mini"), Object.values(byCat));
-  mini($("#box-files .mini"), L.files ? L.files.cats : []);
   meta();
-}
-// A faint outline of what is inside: one rectangle per category, sized like the map.
-function mini(svg, vals) {
-  const r = svg.getBoundingClientRect(), W = Math.round(r.width), H = Math.round(r.height);
-  if (!W || !H) return;
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  const v = vals.filter(x => x > 0).sort((a, b) => b - a);
-  svg.innerHTML = squarify(v, 0, 0, W, H).map(q => `<rect x="${(q.x + .5).toFixed(1)}" y="${(q.y + .5).toFixed(1)}" width="${Math.max(0, q.w - 1).toFixed(1)}" height="${Math.max(0, q.h - 1).toFixed(1)}"/>`).join("");
 }
 
 function show(screen) {
@@ -289,23 +276,17 @@ function launch(a, el) {
     .catch(e => toast("Couldn't open " + a.label + ": " + e.message));
 }
 
-// ---- the speed dial ----------------------------------------------------------------------------------
+// ---- the dial ----------------------------------------------------------------------------------
 const dialOpen = () => !$("#dial").hidden;
 let hot = null;
-// Up to 4 pins on an inner arc and 6 on an outer one, fanned away from the line so each side stays in its own box.
+// Up to 4 names on an inner arc and 6 on an outer one, fanned away from the line so each side stays in its own box.
 function spots(n, cx, cy, dir, W) {
-  const out = [], rings = [[Math.min(n, 4), 118, 40], [Math.max(0, Math.min(n - 4, 6)), 192, 26.8]];
+  const out = [], rings = [[Math.min(n, 4), 118, 40], [Math.max(0, Math.min(n - 4, 6)), 206, 22]];
   for (const [k, r, step] of rings) for (let i = 0; i < k; i++) {
     const ang = (90 + step * ((k - 1) / 2 - i)) * Math.PI / 180;           // centred on the vertical, filling outwards
-    out.push({ x: Math.min(W - 34, Math.max(34, cx + r * Math.cos(ang))), y: cy - dir * r * Math.sin(ang) });
+    out.push({ x: Math.min(W - 46, Math.max(46, cx + r * Math.cos(ang))), y: cy - dir * r * Math.sin(ang) });
   }
   return out;
-}
-function pinFace(p) {
-  if (p.key) return `<img alt="" src="${esc(iconUrl(p.key))}" draggable="false">`;
-  if (p.dir) return `<i class="fold"></i>`;
-  if (p.kind === "image" || p.kind === "image_conv") return `<img class="th" alt="" src="${esc(thumbUrl(p.path))}" draggable="false">`;
-  return `<span class="ext">${esc(extOf(p.name).slice(0, 4) || "file")}</span>`;
 }
 function openDial() {
   const d = $("#dial"), hub = $("#hub").getBoundingClientRect(), W = window.innerWidth;
@@ -320,10 +301,9 @@ function openDial() {
     const ps = spots(s.list.length, cx, cy, s.dir, W);
     s.list.forEach((p, i) => {
       const dx = (cx - ps[i].x).toFixed(1) + "px", dy = (cy - ps[i].y).toFixed(1) + "px";
-      html += `<button type="button" class="di" data-side="${s.name}" data-i="${i}" style="left:${ps[i].x.toFixed(1)}px;top:${ps[i].y.toFixed(1)}px;--dx:${dx};--dy:${dy}">
-        <span class="disc">${pinFace(p)}</span><span class="nm">${esc(p.label || p.name)}</span></button>`;
+      html += `<button type="button" class="di" data-side="${s.name}" data-i="${i}" style="left:${ps[i].x.toFixed(1)}px;top:${ps[i].y.toFixed(1)}px;--dx:${dx};--dy:${dy}"><span class="nm">${esc(p.label || p.name)}</span></button>`;
     });
-    const edge = cy - s.dir * (s.list.length > 4 ? 250 : s.list.length ? 176 : 70);
+    const edge = cy - s.dir * (s.list.length > 4 ? 250 : s.list.length ? 164 : 70);
     html += `<div class="side" data-say="${s.name}" style="top:${(edge - 8).toFixed(0)}px">${s.name}</div>`;
     if (!s.list.length) html += `<div class="hint" style="top:${(cy - s.dir * 118 - 18).toFixed(0)}px">${esc(s.empty)}</div>`;
   }
@@ -341,12 +321,7 @@ function setHot(b) {
   if (b === hot) return;
   if (hot) hot.classList.remove("hot");
   hot = b;
-  $$("#dial .side").forEach(s => { s.textContent = s.dataset.say; s.style.color = ""; });
-  if (b) {
-    b.classList.add("hot"); haptic("tick");
-    const p = pinOf(b), s = $(`#dial .side[data-say="${b.dataset.side}"]`);
-    if (s && p) { s.textContent = p.label || p.name; s.style.color = "var(--ink)"; }
-  }
+  if (b) { b.classList.add("hot"); haptic("tick"); }
 }
 function openPin(p) {
   if (!p) return;
@@ -366,9 +341,9 @@ function openPin(p) {
   });
   hub.addEventListener("pointermove", e => {
     if (!down || !held) return;
-    let best = null, bd = 46;
+    let best = null, bd = 44;
     for (const b of $$("#dial .di")) {
-      const r = b.querySelector(".disc").getBoundingClientRect(), d = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+      const r = b.getBoundingClientRect(), d = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
       if (d < bd) { bd = d; best = b; }
     }
     setHot(best);
@@ -390,9 +365,9 @@ function openPin(p) {
 function togglePin(side, item) {
   const list = side === "Apps" ? L.pins.apps : L.pins.files, id = item.key || item.path;
   const i = list.findIndex(p => (p.key || p.path) === id);
-  if (i >= 0) { list.splice(i, 1); toast("Removed from the speed dial"); }
-  else if (list.length >= MAX_PINS) { toast(`The speed dial holds ${MAX_PINS} ${side.toLowerCase()}. Remove one first.`); return; }
-  else { list.push(item); toast("Added to the speed dial"); }
+  if (i >= 0) { list.splice(i, 1); toast("Removed from the dial"); }
+  else if (list.length >= MAX_PINS) { toast(`The dial holds ${MAX_PINS} ${side.toLowerCase()}. Remove one first.`); return; }
+  else { list.push(item); toast("Added to the dial"); }
   savePref("pins", L.pins);
 }
 const isPinned = (side, id) => (side === "Apps" ? L.pins.apps : L.pins.files).some(p => (p.key || p.path) === id);
@@ -401,11 +376,11 @@ function pinSheet(p, side) {
   closeDial();
   if (side === "Apps" && L.byKey[p.key]) return appSheet(L.byKey[p.key]);
   const list = side === "Apps" ? L.pins.apps : L.pins.files, i = list.indexOf(p);
-  openSheet(`<div class="chip">Speed dial · ${esc(side)}</div><h2>${esc(p.label || p.name)}</h2>
+  openSheet(`<div class="chip">Dial · ${esc(side)}</div><h2>${esc(p.label || p.name)}</h2>
     ${p.path ? `<div class="path">${esc(p.path)}</div>` : ""}
     <div class="row"><button type="button" class="btn primary" id="p-open">Open</button>
       ${p.path && !p.dir ? `<button type="button" class="btn" id="p-dir">Open its folder</button>` : ""}
-      <button type="button" class="btn" id="p-rm">Remove from speed dial</button></div>
+      <button type="button" class="btn" id="p-rm">Remove from dial</button></div>
     <div class="row"><button type="button" class="btn" id="p-l" ${i <= 0 ? "disabled" : ""}>Move earlier</button><button type="button" class="btn" id="p-r" ${i >= list.length - 1 ? "disabled" : ""}>Move later</button></div>`, P => {
     P.querySelector("#p-open").onclick = () => { closeSheet(); openPin(p); };
     if (P.querySelector("#p-dir")) P.querySelector("#p-dir").onclick = () => { closeSheet(); openFile(dirName(p.path), true); };
@@ -433,8 +408,8 @@ function appSheet(a) {
   const cats = (L.cats.length ? L.cats : [a.category]).map(c => `<option ${c === a.category ? "selected" : ""}>${esc(c)}</option>`).join("");
   openSheet(`
     <div class="chip">${esc(a.state)}</div>
-    <h2><img alt="" src="${esc(iconUrl(a.key))}">${esc(a.label)}</h2>
-    <div class="row"><button type="button" class="btn primary" id="s-pin">${pinned ? "Remove from speed dial" : "Add to speed dial"}</button><button type="button" class="btn" id="s-open">Open</button></div>
+    <h2>${esc(a.label)}</h2>
+    <div class="row"><button type="button" class="btn primary" id="s-pin">${pinned ? "Remove from dial" : "Add to dial"}</button><button type="button" class="btn" id="s-open">Open</button></div>
     <div class="why">${esc(a.category)}<small>${esc(HOW[a.how] || "")}: ${esc(a.why)}${a.swhy ? "; " + esc(a.swhy) : ""}</small></div>
     <dl>${L.usage ? `<dt>Last used</dt><dd>${a.lastUsed ? ago(a.lastUsed) : "not in the last two years"}</dd><dt>Use, 30 days</dt><dd>${fmtDur(a.fg30)}</dd><dt>Opens, 30 days</dt><dd>${fmtN(a.opens30)}</dd>`
       : `<dt>Opened from Atlas</dt><dd>${fmtN(a.launches30)} times in 30 days</dd>`}
@@ -460,7 +435,7 @@ function appSheet(a) {
 function fileSheet(f) {
   const pinned = isPinned("Files", f.path);
   openSheet(`<div class="chip">${esc(f.dir ? "folder" : f.kind === "image_conv" ? "image" : f.kind || "file")}</div><h2>${esc(f.name)}</h2>
-    <div class="row"><button type="button" class="btn primary" id="f-pin">${pinned ? "Remove from speed dial" : "Add to speed dial"}</button><button type="button" class="btn" id="f-open">Open</button>
+    <div class="row"><button type="button" class="btn primary" id="f-pin">${pinned ? "Remove from dial" : "Add to dial"}</button><button type="button" class="btn" id="f-open">Open</button>
       ${f.dir ? "" : `<button type="button" class="btn" id="f-dir">Open its folder</button>`}</div>
     <dl>${f.size != null && !f.dir ? `<dt>Size</dt><dd>${fmtSize(f.size)}</dd>` : ""}${f.mtime ? `<dt>Changed</dt><dd>${ymd(f.mtime * 1000)}</dd>` : ""}</dl>
     <div class="path">${esc(f.path)}</div>`, P => {
@@ -523,9 +498,9 @@ function onSearch() {
 function showResults(apps, files, err) {
   const R = $("#results"), top = $("#frame").getBoundingClientRect().bottom;
   R.style.top = top + "px"; R.hidden = false;
-  R.innerHTML = `<h3>Apps</h3>` + (apps.length ? apps.map((a, i) => `<button type="button" class="r" data-a="${i}"><img alt="" src="${esc(iconUrl(a.key))}"><span class="t">${esc(a.label)}<small>${esc(a.category)} · ${esc(a.state)}</small></span><span class="num"></span></button>`).join("") : `<p class="none">No app matches.</p>`)
+  R.innerHTML = `<h3>Apps</h3>` + (apps.length ? apps.map((a, i) => `<button type="button" class="r" data-a="${i}"><span class="t">${esc(a.label)}<small>${esc(a.category)} · ${esc(a.state)}</small></span><span class="num"></span></button>`).join("") : `<p class="none">No app matches.</p>`)
     + `<h3>Files</h3>` + (files === null ? `<p class="none">Searching Atlas</p>` : err ? `<p class="none">${esc(err === "not signed in" ? "Sign in to Atlas to search files." : "Can't reach Atlas right now.")}</p>`
-      : files.length ? files.slice(0, 40).map((f, i) => `<button type="button" class="r" data-f="${i}">${f.kind === "image" ? `<img alt="" src="${esc(thumbUrl(f.path))}" loading="lazy">` : `<span class="ext">${esc(extOf(f.name).slice(0, 4))}</span>`}<span class="t">${esc(f.name)}<small>${esc(dirName(f.path))}</small></span><span class="num">${fmtSize(f.size || 0)}</span></button>`).join("")
+      : files.length ? files.slice(0, 40).map((f, i) => `<button type="button" class="r" data-f="${i}"><span class="t">${esc(f.name)}<small>${esc(dirName(f.path))}</small></span><span class="num">${fmtSize(f.size || 0)}</span></button>`).join("")
       : `<p class="none">${L.q.trim().length < 3 ? "Type three letters to search file names." : "No file matches."}</p>`);
   R.querySelectorAll("[data-a]").forEach(b => { const a = apps[+b.dataset.a]; pressable(b, () => { launch(a, b); }, () => appSheet(a)); });
   R.querySelectorAll("[data-f]").forEach(b => { const f = files[+b.dataset.f]; pressable(b, () => openFile(f.path, false), () => fileSheet(f)); });
@@ -646,13 +621,13 @@ function renderTreemap() {
 function appTile(box, a, x, y, w, h) {
   if (w < 1 || h < 1) return;
   const t = document.createElement("button"); t.type = "button"; t.dataset.k = a.key;
-  const named = w >= 60 && h >= 50, icon = w >= 28 && h >= 28, big = w >= 110 && h >= 90;
-  t.className = "tile a" + age(a) + (named ? "" : icon ? " ic" : " nolab") + (big ? " big" : "");
+  const named = w >= 54 && h >= 24;
+  t.className = "tile a" + age(a) + (named ? "" : " nolab");
   const g = w < 10 || h < 10 ? 0.5 : 1;
   Object.assign(t.style, { left: (x + g) + "px", top: (y + g) + "px", width: Math.max(0, w - 2 * g) + "px", height: Math.max(0, h - 2 * g) + "px" });
   t.setAttribute("aria-label", `${a.label}, ${a.state}, ${a.category}`);
   const m = metricText(a);
-  if (icon) t.innerHTML = `<img class="ai" alt="" src="${esc(iconUrl(a.key))}" decoding="async" draggable="false">` + (named ? `<span class="n">${esc(a.label)}</span>` + (m && h >= 66 ? `<span class="v">${esc(m)}</span>` : "") : "");
+  if (named) t.innerHTML = `<span class="n">${esc(a.label)}</span>` + (m && h >= 40 ? `<span class="v">${esc(m)}</span>` : "");
   pressable(t, () => launch(a, t), () => appSheet(a));
   box.appendChild(t);
 }
@@ -804,7 +779,7 @@ function renderList() {
       const leaf = k.type === "app", open = k.kids.length > 0 && isOpen(k);
       const r = document.createElement("button"); r.type = "button";
       r.className = "lrow" + (k.type === "state" ? " g1" : k.type === "cat" ? " g2" : "") + (leaf && k.match ? " hit" : "");
-      r.innerHTML = `<span class="nm" style="padding-left:${d * 16}px"><span class="car">${k.kids.length ? (open ? "▾" : "▸") : ""}</span>${leaf ? `<img alt="" src="${esc(iconUrl(k.a.key))}" loading="lazy">` : ""}<span class="t">${esc(k.label)}</span></span>`
+      r.innerHTML = `<span class="nm" style="padding-left:${d * 16}px"><span class="car">${k.kids.length ? (open ? "▾" : "▸") : ""}</span><span class="t">${esc(k.label)}</span></span>`
         + `<span class="num">${leaf ? esc(metricText(k.a)) : fmtN(k.n)}</span><span class="num">${leaf && lastUse(k.a) ? esc(ago(lastUse(k.a))) : ""}</span>`;
       if (leaf) pressable(r, () => launch(k.a, r), () => appSheet(k.a)); else r.onclick = () => toggleNode(k);
       box.appendChild(r);

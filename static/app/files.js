@@ -32,7 +32,7 @@ async function browse(dir, focusPath) {
   } catch (e) { FB.msg = "Can't open that folder: " + e.message; FB.err = true; if (S.browse) render(); else alert(FB.msg); }
 }
 
-function leaveBrowser() { S.browse = false; FB.hist = []; render(); }
+function leaveBrowser() { S.browse = false; FB.hist = []; FB.fromLauncher = false; render(); }
 
 function selection() {
   const sel = FB.entries.filter(e => FB.checked.has(e.path));
@@ -86,7 +86,7 @@ function renderBrowser() {
   wrap.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.a));
 }
 
-// The launcher's long press on a file or folder: Add to speed dial, open, and where it is.
+// The launcher's long press on a file or folder: Add to dial, open, and where it is.
 function fileMenu(e) {
   const p = $("#panel");
   p.innerHTML = `<div class="chip">${esc(e.dir ? "folder" : e.kind === "image_conv" ? "image" : e.kind)}</div><h2>${esc(e.name)}</h2>

@@ -213,7 +213,7 @@ aside { min-height: 0; display: block; }
   .sheetx { display: block; position: sticky; top: 0; margin-left: auto; z-index: 2; font: 500 13px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; }
 }
 .btn.lock { background: #C8362F; border-color: #C8362F; color: #fff; font-weight: 500; }
-/* Inside the Atlas launcher on a phone: Home instead of Devices, one tap opens, a long press offers the speed dial. */
+/* Inside the Atlas launcher on a phone: Home instead of Devices, one tap opens, a long press offers the dial. */
 #homel { display: none; }
 body.launcher #homel { display: inline-block; }
 body.launcher #devices { display: none; }
@@ -415,7 +415,7 @@ function tile(box, f, x, y, w, h, c, off) {
 }
 
 // "(files here)", "(12 more folders)": tapping one shows the folder that holds it.
-// The launcher: one tap opens a folder, a long press shows its details and Add to speed dial.
+// The launcher: one tap opens a folder, a long press shows its details and Add to dial.
 let fingers = 0;
 if (LAUNCHER) {
   document.addEventListener("pointerdown", () => { fingers++; }, true);
@@ -433,11 +433,11 @@ function lpress(el, onTap, onLong) {
   el.addEventListener("click", e => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; return; } onTap(e); });
 }
 function launcherCall(m, ...a) { try { return window.AtlasLauncher[m](...a); } catch (e) { return null; } }
-const pinLabel = path => launcherCall("isPinned", path) ? "Remove from speed dial" : "Add to speed dial";
+const pinLabel = path => launcherCall("isPinned", path) ? "Remove from dial" : "Add to dial";
 function togglePin(item, btn, note) {
   const r = launcherCall("pin", JSON.stringify(item));
-  if (btn && r !== "full") btn.textContent = r === "added" ? "Remove from speed dial" : "Add to speed dial";
-  if (note) { note.hidden = r !== "full"; note.textContent = "The speed dial holds 10 files. Remove one first."; note.className = "note err"; }
+  if (btn && r !== "full") btn.textContent = r === "added" ? "Remove from dial" : "Add to dial";
+  if (note) { note.hidden = r !== "full"; note.textContent = "The dial holds 10 files. Remove one first."; note.className = "note err"; }
   return r;
 }
 function folderPath(f, child) {
@@ -448,14 +448,21 @@ function folderPath(f, child) {
 function openTile(f, c) { if (f.offline) return pick(f, c); browse(folderPath(f, c ? c.name : null)); }
 function pinBtn(path) { return LAUNCHER ? `<button type="button" class="btn" id="o-pin">${esc(pinLabel(path))}</button>` : ""; }
 function wirePin(path, name) { const b = $("#o-pin"); if (b) b.onclick = () => togglePin({ path, name, dir: true, kind: "folder" }, b, $("#o-note")); }
-window.atlasOpen = (path, dir) => { FB.hist = []; if (dir) browse(path); else browse(path.slice(0, path.lastIndexOf("\\")) || path, path); return true; };
+// The launcher opens a pinned or found file or folder here; Back then returns to the launcher, not to the map.
+window.atlasOpen = (path, dir) => { FB.hist = []; FB.fromLauncher = true; if (dir) browse(path); else browse(path.slice(0, path.lastIndexOf("\\")) || path, path); return true; };
 // Android's Back inside the launcher: close what is open, go back a folder, zoom out. False when there is nothing left.
 window.atlasBack = () => {
   const v = document.querySelector(".viewer");
-  if (v) { v.querySelector("#v-close").click(); return true; }
+  if (v) { v.querySelector("#v-close").click(); document.body.classList.remove("sheet"); return true; }
   if (document.body.classList.contains("sheet")) { document.body.classList.remove("sheet"); return true; }
   if (!$("#tones").hidden) { closeTones(); return true; }
-  if (S.browse) { const prev = (FB.hist || []).pop(); if (prev) { FB.noHist = true; browse(prev); } else leaveBrowser(); return true; }
+  if (S.browse) {
+    const prev = (FB.hist || []).pop();
+    if (prev) { FB.noHist = true; browse(prev); return true; }
+    const fromLauncher = FB.fromLauncher;
+    leaveBrowser();
+    return !fromLauncher;
+  }
   if (S.q) { $("#q").value = ""; S.q = ""; render(); return true; }
   if (S.view === "treemap" && S.zoom.length) { S.zoom = S.zoom.slice(0, -1); resetMZ(); render(); crumbs(); return true; }
   return false;
