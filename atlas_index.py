@@ -100,8 +100,33 @@ def _reachable(root):
         return any(p.startswith(r + "\\") for p in rfs.roots())
 
 
+LISTED = os.path.join(HERE, "listed.json")
+ARCHIVE = {s["id"] for s in cfg.SOURCES if s.get("archive")}
+ARCHIVE_HOURS = float(cfg.C.get("archive_every_hours", 24))
+
+
+def _reuse(db, tag, root, listed):
+    """Server only: an archive (an old backup) changes rarely and is slow to list, so its listing is reused
+    from the last index for archive_every_hours. Returns the number of files copied, or None to list it now."""
+    if not (cfg.CLOUD and tag in ARCHIVE and os.path.exists(DB)): return None
+    if time.time() - listed.get(root, 0) > ARCHIVE_HOURS * 3600: return None
+    db.execute("ATTACH DATABASE ? AS old", (DB,))
+    try:
+        cur = db.execute("INSERT INTO files SELECT NULL, root, path, rel, name, ext, kind, size, mtime, attrs, cloud, docnum, doccat, rev "
+                         "FROM old.files WHERE root = ? AND path LIKE ? ESCAPE '!'",
+                         (tag, root.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "\\%"))
+        n = cur.rowcount
+        db.execute("INSERT INTO roots SELECT * FROM old.roots WHERE root = ? AND path = ?", (tag, root))
+        db.commit()
+    finally:
+        db.execute("DETACH DATABASE old")
+    return n if n > 0 else None
+
+
 def main():
     t0 = time.time()
+    try: listed = json.load(open(LISTED, encoding="utf-8"))
+    except Exception: listed = {}
     if os.path.exists(TMP): os.remove(TMP)
     db = sqlite3.connect(TMP)
     db.executescript("""
@@ -113,6 +138,9 @@ def main():
     for tag, root in ROOTS:
         if not _reachable(root):
             log(f"missing root {root}"); continue
+        kept = _reuse(db, tag, root, listed)
+        if kept:
+            log(f"kept {tag} {root}: {kept} files from the last listing"); continue
         t1, n, b, rows = time.time(), 0, 0, []
         for f in files(root):
             if f[0] is None:
@@ -130,6 +158,7 @@ def main():
         db.executemany("INSERT INTO files VALUES(NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         db.execute("INSERT INTO roots VALUES(?,?,?,?,?)", (tag, root, n, b, round(time.time() - t1, 1)))
         db.commit(); log(f"done {tag} {root}: {n} files, {b/1e9:.2f} GB, {time.time()-t1:.0f} s")
+        if n: listed[root] = time.time()
     db.executescript("CREATE INDEX i_name ON files(name); CREATE INDEX i_doc ON files(docnum);")
     q = lambda s: db.execute(s).fetchall()
     summary = {
@@ -144,6 +173,7 @@ def main():
     db.close()
     if os.path.exists(DB): os.remove(DB)
     os.replace(TMP, DB)
+    if cfg.CLOUD: json.dump(listed, open(LISTED, "w", encoding="utf-8"))
     with open(os.path.join(HERE, "summary.json"), "w", encoding="utf-8") as f: json.dump(summary, f, indent=1)
     log(f"finished in {summary['seconds']} s"); print(json.dumps(summary))
 

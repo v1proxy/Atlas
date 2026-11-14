@@ -271,6 +271,7 @@ class Handler(BaseHTTPRequestHandler):
         dev = sec.device(self.headers.get("Cookie"))
         if not dev:
             if p in ("/", "/index.html"):
+                if cfg.CLOUD: return self._locked("Enter the pairing code you were given for this device.")
                 return self._locked("On the PC, open Atlas from the Start menu. To use a phone, pair it from Atlas on the PC: Devices, then Pair a phone.")
             return self._json(401, {"error": "sign in first"})
         self.dev = dev
