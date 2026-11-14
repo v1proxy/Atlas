@@ -507,7 +507,8 @@ function treemapZoom(map, box, W, H) {
   const zoomAt = (k, cx, cy) => { k = Math.min(MAX, Math.max(1, k)); T.x = cx - (cx - T.x) * k / T.k; T.y = cy - (cy - T.y) * k / T.k; T.k = k; clamp(); };
   const at = e => { const r = map.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   const pts = new Map(); let pinch = null, moved = 0;
-  box.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; clearTimeout(timer); });
+  const pinchStart = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], k: T.k, x: T.x, y: T.y }; };
+  box.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = pts.size === 2 ? pinchStart() : null; clearTimeout(timer); });
   box.addEventListener("pointermove", e => {
     if (!pts.has(e.pointerId)) return;
     const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
@@ -517,8 +518,11 @@ function treemapZoom(map, box, W, H) {
       return;
     }
     const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    if (pinch) zoomAt(T.k * d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-    pinch = d; moved = 99;
+    // Two fingers move the map as they pinch: what was under them when they touched stays under them.
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (!pinch) pinch = pinchStart();
+    else { T.k = pinch.k; T.x = pinch.x + mid[0] - pinch.mid[0]; T.y = pinch.y + mid[1] - pinch.mid[1]; zoomAt(pinch.k * d / pinch.d, mid[0], mid[1]); }
+    moved = 99;
   });
   const up = e => { if (!pts.delete(e.pointerId)) return; pinch = null; if (!pts.size && moved > 8) commit(true); };
   ["pointerup", "pointercancel"].forEach(n => box.addEventListener(n, up));
@@ -657,22 +661,27 @@ function treeZoom(svg, g, W0, H0) {
   const clamp = () => {
     T.k = Math.min(MAX, Math.max(fit, T.k));
     const w = W0 * T.k, h = H0 * T.k;
-    T.x = w <= vw ? 0 : Math.min(0, Math.max(vw - w, T.x));
-    T.y = h <= vh ? 0 : Math.min(0, Math.max(vh - h, T.y));
+    // Smaller than the screen, the tree can sit anywhere on it; bigger, it moves until its edges reach the screen's.
+    T.x = Math.min(Math.max(0, vw - w), Math.max(Math.min(0, vw - w), T.x));
+    T.y = Math.min(Math.max(0, vh - h), Math.max(Math.min(0, vh - h), T.y));
     g.setAttribute("transform", `translate(${T.x},${T.y}) scale(${T.k})`);
   };
   const zoomAt = (k, cx, cy) => { k = Math.min(MAX, Math.max(fit, k)); T.x = cx - (cx - T.x) * k / T.k; T.y = cy - (cy - T.y) * k / T.k; T.k = k; clamp(); };
   clamp();
   const pts = new Map(); let pinch = null, moved = 0;
   const at = e => { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  svg.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; });
+  const pinchStart = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], k: T.k, x: T.x, y: T.y }; };
+  svg.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = pts.size === 2 ? pinchStart() : null; });
   svg.addEventListener("pointermove", e => {
     if (!pts.has(e.pointerId)) return;
     const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
     if (pts.size === 1) { T.x += p1[0] - p0[0]; T.y += p1[1] - p0[1]; moved += Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]); clamp(); return; }
     const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    if (pinch) zoomAt(T.k * d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-    pinch = d; moved = 99;
+    // Two fingers move the map as they pinch: what was under them when they touched stays under them.
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (!pinch) pinch = pinchStart();
+    else { T.k = pinch.k; T.x = pinch.x + mid[0] - pinch.mid[0]; T.y = pinch.y + mid[1] - pinch.mid[1]; zoomAt(pinch.k * d / pinch.d, mid[0], mid[1]); }
+    moved = 99;
   });
   const up = e => { pts.delete(e.pointerId); pinch = null; };
   ["pointerup", "pointercancel", "pointerleave"].forEach(n => svg.addEventListener(n, up));
@@ -921,7 +930,8 @@ if (LAUNCHER) (function swipeBack() {
     const t = s; s = null;
     if (!t || e.touches.length) return;
     const c = e.changedTouches[0], dx = c.clientX - t.x, dy = c.clientY - t.y;
-    if (dx < 70 || Math.abs(dy) > dx * .6 || Date.now() - t.at > 700 || pose() !== t.pose || (t.h && t.h.scrollLeft !== t.hx)) return;
+    const edge = t.x < 24;                                               // from the left edge it is always Back, as on the phone
+    if (dx < 70 || Math.abs(dy) > dx * .6 || Date.now() - t.at > 700 || (!edge && (pose() !== t.pose || (t.h && t.h.scrollLeft !== t.hx)))) return;
     if (!window.atlasBack()) launcherCall("home");
   }, { passive: true });
   document.addEventListener("touchcancel", () => { s = null; }, { passive: true });
