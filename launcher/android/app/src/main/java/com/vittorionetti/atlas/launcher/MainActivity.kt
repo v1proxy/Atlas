@@ -72,7 +72,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val ASSETS = "appassets.androidplatform.net"
-        private val IVORY = Color.rgb(0xF3, 0xF1, 0xEC)
+        private val IVORY = Color.rgb(0xF2, 0xEB, 0xD8)             // the page's ivory (launcher.css)
         private const val REQ_HOME = 41
     }
 
