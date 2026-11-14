@@ -178,6 +178,7 @@ header { grid-row: 1; } .sub { grid-row: 2; }
 #map.zoomable svg { display: block; touch-action: none; }
 #map.tmview { overflow: hidden; touch-action: none; }
 .tmz { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.tile.nolab { padding: 0; }                      /* padding only around a label: an empty tile is exactly its size */
 .tile.xs { padding: 0; border-radius: 1px; }
 .tile.more { font-style: italic; }
 .region.fold { background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line); border-radius: 3px; }
@@ -395,6 +396,7 @@ function tile(box, f, x, y, w, h, c, off) {
   Object.assign(t.style, { left: (x + g) + "px", top: (y + g) + "px", width: Math.max(0, w - 2 * g) + "px", height: Math.max(0, h - 2 * g) + "px" });
   t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
   if (w >= 60 && h >= 26) t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${esc(size)}</span>` : "");
+  else t.classList.add("nolab");
   t.onclick = () => pick(f, c);
   t.onpointermove = e => { if (e.pointerType === "mouse") tip(e, f, c); };
   t.onpointerleave = () => { $("#tip").hidden = true; };
