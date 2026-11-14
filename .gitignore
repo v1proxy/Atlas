@@ -26,6 +26,8 @@ launcher/rules.json
 launcher/test/site/
 launcher/test/shots/
 launcher/android/local.properties
+launcher/android/keystore.properties
+*.jks
 launcher/android/.gradle/
 launcher/android/.kotlin/
 launcher/android/build/

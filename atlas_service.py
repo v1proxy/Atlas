@@ -164,7 +164,7 @@ def launcher_page():
             + '<a class="b" href="/launcher/atlas-launcher.apk">Download the launcher</a>'
             + "<ol><li>Open the download and tap <b>Install</b>. The first time, Android asks you to allow installs from Chrome.</li>"
             + "<li>Open Atlas and tap <b>Make Atlas the Home screen</b>.</li></ol>"
-            + "<p>Later versions arrive inside the launcher: Options, then Check for an update.</p>")
+            + "<p>Later versions arrive inside the launcher: Settings, then Version and updates.</p>")
     return LAUNCHER_PAGE.replace("{body}", body)
 
 
