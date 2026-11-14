@@ -80,16 +80,17 @@ body[data-screen="settings"] .tools { display: none; }
 .box.files .lbl, .box.files .v { left: 16px; }
 .box:active { filter: brightness(1.06); }
 
-/* The circle: a black disc on the band, a white ring, a small white cross; ring, cross and line all 1px. */
+/* The circle: a black disc on the band, a white ring, a small white cross; ring, cross and line all 1px.
+   It never changes size, so the line always meets the ring: a press shades the disc and draws the cross in. */
 .hub { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; z-index: 20;
   background: var(--bg); border: 1px solid var(--ink); padding: 0; cursor: pointer; display: grid; place-items: center; touch-action: none;
-  box-shadow: 0 0 0 7px var(--bg); transition: transform .15s ease; }
-.hub i { position: relative; width: 16px; height: 16px; display: block; }       /* turned by launcher.js only */
+  box-shadow: 0 0 0 7px var(--bg); transition: background-color .15s ease; }
+.hub i { position: relative; width: 16px; height: 16px; display: block; transition: scale .15s ease; }   /* turned by launcher.js only */
 .hub i::before, .hub i::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--ink); }
 .hub i::before { width: 16px; height: 1px; margin: -.5px 0 0 -8px; }
 .hub i::after { width: 1px; height: 16px; margin: -8px 0 0 -.5px; }
-.hub.on { transform: scale(1.08); }
-.hub.press { transform: scale(.93); }
+.hub.press { background: color-mix(in oklab, var(--ink) 10%, var(--bg)); }
+.hub.press i { scale: .8; }
 
 /* ---- the dial: names only, apps toward the Apps box, files toward the Files box ------------------------------- */
 /* The names swing out of the circle onto three rings (launcher.js animates them); here: the veil, the rings' spacing
