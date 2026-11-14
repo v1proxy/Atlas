@@ -13,16 +13,13 @@
     <h1 id="title">Atlas</h1>
     <div class="meta" id="meta">Loading</div>
     <button type="button" class="btn" id="homebtn" hidden>Home</button>
-    <button type="button" class="btn" id="optbtn">Options</button>
+    <button type="button" class="btn" id="optbtn">Settings</button>
   </div>
   <div class="tools">
     <input type="search" id="q" placeholder="Find an app, folder or file" aria-label="Find an app, folder or file" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
     <div class="seg only-apps" id="views" role="group" aria-label="View"><button type="button" data-v="treemap" aria-pressed="true">Treemap</button><button type="button" data-v="tree" aria-pressed="false">Tree</button><button type="button" data-v="list" aria-pressed="false">List</button></div>
     <div class="seg only-apps" id="metric" role="group" aria-label="Sized by"><button type="button" data-m="use" aria-pressed="true">Use</button><button type="button" data-m="opens" aria-pressed="false">Opens</button><button type="button" data-m="eq" aria-pressed="false">Every app</button></div>
-    <div class="tonebox">
-      <button type="button" class="tonebtn" id="tonebtn" aria-haspopup="true" aria-expanded="false" title="Color"><i></i></button>
-      <div class="tones" id="tones" role="group" aria-label="Color" hidden></div>
-    </div>
+    <button type="button" class="tonebtn" id="tonebtn" title="Color" aria-label="Color, in Settings"><i></i></button>
   </div>
   <nav class="crumbs only-apps" id="crumbs" aria-label="Where you are"></nav>
 </header>
@@ -34,6 +31,7 @@
 </main>
 
 <main id="apps" aria-label="Apps" hidden><div id="map" role="application" aria-label="Map of every app"></div></main>
+<main id="settings" aria-label="Settings" hidden></main>
 
 <div class="dial" id="dial" hidden></div>
 <div class="results" id="results" hidden></div>

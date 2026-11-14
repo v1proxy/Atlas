@@ -64,7 +64,8 @@
     switch (method) {
       case "apps": return { apps, usage: P.usage() };
       case "prefs.get": return P.prefs();
-      case "prefs.set": P.set(a.key, a.value); return true;
+      case "prefs.set": P.set(a.key, a.value); if (a.key === "theme") P.theme(a.value); return true;
+      case "quit": P.quit(); return true;
       case "launch": { const x = apps.find(y => y.key === a.key); if (x) { const r = x.launches30 = (x.launches30 || 0) + 1; x.lastLaunch = Date.now(); P.launch(x.label, icon(x.key)); } return true; }
       case "appInfo": P.toast("Here Android opens the app's App info."); return true;
       case "uninstall": P.toast("Here Android asks you to confirm the uninstall."); return true;

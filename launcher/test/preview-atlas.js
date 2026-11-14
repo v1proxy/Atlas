@@ -8,6 +8,7 @@
     home() { P.home(); },
     haptic(k) { P.haptic(k); },
     isPinned(p) { return P.isPinnedFile(p); },
+    theme() { const t = P.prefs().theme; return t ? JSON.stringify(t) : ""; },
     pin(json) { return P.togglePinFile(JSON.parse(json)); },
   };
   window.PV_FILE = (path, dl) => (D && D.index[path] ? D.index[path].file : "data:,");

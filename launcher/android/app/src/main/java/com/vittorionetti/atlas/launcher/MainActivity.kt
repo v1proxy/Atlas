@@ -6,8 +6,10 @@ import android.app.ActivityOptions
 import android.app.DownloadManager
 import android.app.PendingIntent
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Rect
 import android.net.Uri
@@ -114,6 +116,21 @@ class MainActivity : Activity() {
 
         usageWas = apps.hasUsageAccess()
         apps.listen { event("apps") }
+
+        // Opened from the apps after Quit: be the Home screen again (Android asks once the page is ready).
+        if (packageManager.getComponentEnabledSetting(homeAlias) == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+            packageManager.setComponentEnabledSetting(homeAlias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+            prefs.setFlag("askedHome", false)
+        }
+    }
+
+    private val homeAlias get() = ComponentName(this, "$packageName.Home")
+
+    /** Settings, Quit: Atlas stops being a Home screen and the phone's own launcher takes over. */
+    private fun quit() = runOnUiThread {
+        packageManager.setComponentEnabledSetting(homeAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+        try { startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+        finishAndRemoveTask()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -224,7 +241,11 @@ class MainActivity : Activity() {
     private fun handle(method: String, a: JSONObject): Any? = when (method) {
         "apps" -> apps.list()
         "prefs.get" -> prefs.page()
-        "prefs.set" -> { prefs.setFromPage(a.getString("key"), a.opt("value")); true }
+        "prefs.set" -> {
+            val key = a.getString("key"); prefs.setFromPage(key, a.opt("value"))
+            if (key == "theme") runOnUiThread { if (filesReady) files.evaluateJavascript("window.atlasTheme&&atlasTheme(${prefs.themeJson().ifEmpty { "null" }})", null) }
+            true
+        }
         "launch" -> { launch(a); true }
         "appInfo" -> { apps.details(a.getString("key")); true }
         "uninstall" -> { uninstall(a.getString("key")); true }
@@ -248,6 +269,7 @@ class MainActivity : Activity() {
         "haptic" -> { runOnUiThread { haptic(home, a.optString("k")) }; true }
         "usage.request" -> { runOnUiThread { openUsageSettings() }; true }
         "home.request" -> { requestHome(); true }
+        "quit" -> { quit(); true }
         "info" -> JSONObject().put("version", BuildConfig.VERSION_NAME).put("code", BuildConfig.VERSION_CODE)
             .put("server", server.address).put("isDefault", isDefaultHome()).put("usage", apps.hasUsageAccess()).put("signedIn", server.signedIn())
         "pair" -> { pair(a.getString("code"), a.optString("server")); true }
@@ -303,6 +325,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun home() { runOnUiThread { goHome() } }
         @JavascriptInterface fun haptic(kind: String) { runOnUiThread { haptic(files, kind) } }
         @JavascriptInterface fun isPinned(path: String): Boolean = prefs.isPinnedFile(path)
+        @JavascriptInterface fun theme(): String = prefs.themeJson()
         @JavascriptInterface fun pin(json: String): String {
             val r = prefs.togglePinFile(JSONObject(json))
             if (r != "full") event("pins")

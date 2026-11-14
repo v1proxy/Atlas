@@ -26,7 +26,7 @@ function ago(t) {
 const L = {
   screen: "home", apps: [], byKey: {}, usage: false, files: null, filesErr: "",
   cats: [], states: ["Current", "Superseded", "Working"],
-  pins: { apps: [], files: [] }, over: {}, order: "apps-top", tone: "red",
+  pins: { apps: [], files: [] }, over: {}, order: "apps-top", theme: null,
   view: "treemap", metric: "use", zoom: [], q: "", tz: null,
   open: new Set(["Apps", "Current", "Superseded", "Working"]),
 };
@@ -78,8 +78,8 @@ window.onLauncherEvent = ev => {
 window.launcherBack = () => {
   if (dialOpen()) { closeDial(); return true; }
   if (document.body.classList.contains("sheeton")) { closeSheet(); return true; }
-  if (!$("#tones").hidden) { closeTones(); return true; }
   if (L.q) { clearSearch(); return true; }
+  if (L.screen === "settings") { goHome(); return true; }
   if (L.screen === "apps") {
     if (L.view === "treemap" && L.zoom.length) { L.zoom = L.zoom.slice(0, -1); resetMZ(); renderApps(); crumbs(); return true; }
     goHome(); return true;
@@ -170,7 +170,7 @@ async function loadPrefs() {
     const p = await native("prefs.get") || {};
     L.pins = p.pins && p.pins.apps ? p.pins : { apps: [], files: [] };
     L.over = p.over || {}; L.order = p.order || "apps-top"; L.view = p.view || "treemap"; L.metric = p.metric || "use";
-    if (p.tone) L.tone = p.tone;
+    L.theme = validTheme(p.theme) || (p.tone ? themeFromTone(p.tone) : L.theme);
     if (Array.isArray(p.cats) && p.cats.length && !L.cats.length) L.cats = p.cats;
   } catch (e) { /* first run */ }
 }
@@ -193,7 +193,7 @@ async function loadFiles() {
     if (Array.isArray(d.categories) && d.categories.length) { L.cats = d.categories; savePref("cats", L.cats); }
     L.filesErr = "";
   } catch (e) { L.filesErr = e.message || "can't reach Atlas"; }
-  try { const s = await server("/settings"); if (s.tone && s.tone !== L.tone) { L.tone = s.tone; applyTone(s.tone); savePref("tone", s.tone); } } catch (e) {}
+  if (!L.theme) try { const s = await server("/settings"); if (s.tone) { L.theme = themeFromTone(s.tone); applyTheme(); saveTheme(); } } catch (e) {}  // start from Atlas's color
   if (!L.cats.length) L.cats = Object.values(RULES.categories || {});
   classifyAll();
 }
@@ -214,25 +214,38 @@ function refreshScreen() {
 const usedRecently = a => lastUse(a) && Date.now() - lastUse(a) <= 30 * DAY;
 function meta() {
   const n = L.apps.length, used = L.apps.filter(usedRecently).length;
+  if (L.screen === "settings") { $("#meta").textContent = "Atlas launcher" + (L.version ? " " + L.version : ""); return; }
   if (L.screen === "apps") {
     $("#meta").innerHTML = `<b>${fmtN(n)}</b> apps` + (L.usage || used ? ` · <b>${fmtN(used)}</b> used in 30 days` : "") + ` · ${L.usage ? "use from Android" : "no usage data"}`;
     return;
   }
   $("#meta").innerHTML = `<b>${fmtN(n)}</b> apps` + (L.files ? ` · <b>${fmtN(L.files.total_files)}</b> files · <b>${fmtGB(L.files.total_gb)}</b>` : "");
 }
-const TONES = [["red", "Red", 27, .17], ["orange", "Orange", 48, .15], ["amber", "Amber", 78, .13], ["green", "Green", 150, .13],
-  ["teal", "Teal", 195, .11], ["blue", "Blue", 255, .15], ["violet", "Violet", 295, .15], ["graphite", "Graphite", 255, .02]];
-function applyTone(k) {
-  const t = TONES.find(x => x[0] === k) || TONES[0], r = document.documentElement.style;
-  r.setProperty("--h", t[2]); r.setProperty("--c", t[3]); L.tone = t[0];
-  $$("#tones button, .swatches button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === t[0])));
+// ---- color: one color, or a gradient of two, picked on a wheel ---------------------------------------------------
+// A color is a hue (degrees) and a strength (OKLCH chroma); the four shades of the map come from it as in Atlas.
+const DEF_THEME = { mode: "solid", a: { h: 27, c: .17 }, b: { h: 295, c: .15 } };          // ARX red; the second color for gradients
+const NAMED = { red: [27, .17], orange: [48, .15], amber: [78, .13], green: [150, .13], teal: [195, .11], blue: [255, .15], violet: [295, .15], graphite: [255, .02] };
+const themeFromTone = k => { const t = NAMED[k] || NAMED.red; return { mode: "solid", a: { h: t[0], c: t[1] }, b: { ...DEF_THEME.b } }; };
+const goodColor = x => x && isFinite(x.h) && isFinite(x.c) && x.c >= 0 && x.c <= .4;
+const validTheme = t => t && goodColor(t.a) && goodColor(t.b) ? { mode: t.mode === "gradient" ? "gradient" : "solid", a: { h: +t.a.h, c: +t.a.c }, b: { h: +t.b.h, c: +t.b.c } } : null;
+const theme = () => L.theme || (L.theme = JSON.parse(JSON.stringify(DEF_THEME)));
+const okl = (l, x) => `oklch(${l} ${x.c.toFixed(3)} ${x.h.toFixed(1)})`;
+function midColor(A, B) { const dh = ((B.h - A.h + 540) % 360) - 180; return { h: (A.h + dh / 2 + 360) % 360, c: (A.c + B.c) / 2 }; }
+// What each box shows: in a gradient the color runs from the top of the upper box to the bottom of the lower one.
+function boxColors(t) {
+  if (t.mode !== "gradient") { const apps = okl(.63, t.a), files = okl(.53, t.a); return L.order === "files-top" ? [files, apps] : [apps, files]; }
+  const M = midColor(t.a, t.b);
+  return [`linear-gradient(to bottom, ${okl(.63, t.a)}, ${okl(.58, M)})`, `linear-gradient(to bottom, ${okl(.58, M)}, ${okl(.53, t.b)})`];
 }
-function setTone(k) {
-  applyTone(k); savePref("tone", k);
-  fire("serverPost", { path: "/settings", body: { tone: k } });      // the same tone in Atlas everywhere
+function applyTheme() {
+  const t = theme(), r = document.documentElement.style, g = t.mode === "gradient";
+  r.setProperty("--h", t.a.h.toFixed(1)); r.setProperty("--c", t.a.c.toFixed(3));
+  const [top, bottom] = boxColors(t);
+  r.setProperty("--top-bg", top); r.setProperty("--bottom-bg", bottom);
+  r.setProperty("--dot", g ? `linear-gradient(135deg, ${okl(.63, t.a)} 50%, ${okl(.63, t.b)} 50%)` : okl(.63, t.a));
+  document.body.classList.toggle("gradient", g);
 }
-const swatchHtml = () => TONES.map(t => `<button type="button" data-k="${t[0]}" title="${t[1]}" aria-label="${t[1]} tone" aria-pressed="${t[0] === L.tone}" style="background:oklch(.6 ${t[3]} ${t[2]})"></button>`).join("");
-function closeTones() { $("#tones").hidden = true; $("#tonebtn").setAttribute("aria-expanded", "false"); }
+const saveTheme = () => savePref("theme", theme());                       // the app passes it on to Atlas in Files
 
 // ---- home: the two boxes -----------------------------------------------------------------------------
 function applyOrder() {
@@ -252,12 +265,13 @@ function renderHome() {
 
 function show(screen) {
   L.screen = screen; document.body.dataset.screen = screen;
-  $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps";
-  $("#title").textContent = screen === "apps" ? "Apps" : "Atlas";
+  $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
+  $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
   $("#homebtn").hidden = screen === "home"; $("#optbtn").hidden = screen !== "home";
   $("#q").placeholder = screen === "apps" ? "Find an app" : "Find an app, folder or file";
-  closeSheet(); hideResults(); closeDial(); closeTones();
+  closeSheet(); hideResults(); closeDial();
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
+  else if (screen === "settings") renderSettings();
   else renderHome();
   meta();
 }
@@ -444,35 +458,109 @@ function fileSheet(f) {
     if (P.querySelector("#f-dir")) P.querySelector("#f-dir").onclick = () => { closeSheet(); openFile(dirName(f.path), true); };
   });
 }
-async function optionsSheet() {
+// ---- Settings: appearance, layout, home screen, usage, Atlas, version, quit ------------------------------------------
+async function renderSettings() {
   const info = await native("info").catch(() => ({}));
-  const signedIn = !!L.files, err = L.filesErr;
-  openSheet(`<div class="chip">Options</div><h2>Atlas on this phone</h2>
-    <div class="opt"><h4>Color</h4><div class="swatches">${swatchHtml()}</div></div>
-    <div class="opt"><h4>Layout</h4><div class="seg" id="o-order"><button type="button" data-o="apps-top" aria-pressed="${L.order !== "files-top"}">Apps on top</button><button type="button" data-o="files-top" aria-pressed="${L.order === "files-top"}">Files on top</button></div></div>
-    <div class="opt"><h4>Home screen</h4>${info.isDefault ? `<p class="note">Atlas is your Home screen. To switch back, choose another Home app in Android's settings.</p>`
-      : `<p class="note">Atlas isn't your Home screen yet.</p><div class="row"><button type="button" class="btn primary" id="o-home">Make Atlas the Home screen</button></div>`}</div>
-    <div class="opt"><h4>Usage</h4>${L.usage ? `<p class="note">Apps are sized by how much you use them, and apps unused for two months move to Superseded.</p>`
-      : `<p class="note">Allow usage access and the apps you use most become the biggest tiles, and apps you stopped using move to Superseded. Nothing leaves the phone.</p><div class="row"><button type="button" class="btn" id="o-usage">Allow usage access</button></div>`}</div>
-    <div class="opt"><h4>Files</h4><p class="note">${signedIn ? `Signed in to Atlas${L.files.generated ? ", map from " + esc(L.files.generated.replace("T", " ").slice(0, 16)) : ""}.` : err === "not signed in" ? "Not signed in to Atlas yet." : "Can't reach Atlas right now. Check that Tailscale is on."}</p>
+  L.version = info.version || ""; meta();
+  const t = theme(), signedIn = !!L.files, err = L.filesErr;
+  const box = $("#settings");
+  box.innerHTML = `<div class="set">
+    <section id="s-look"><h3>Appearance</h3>
+      <div class="seg" id="o-mode"><button type="button" data-m="solid" aria-pressed="${t.mode !== "gradient"}">One color</button><button type="button" data-m="gradient" aria-pressed="${t.mode === "gradient"}">Gradient</button></div>
+      <div class="wheelrow"><div class="wheel" id="wheel"><canvas></canvas><span class="hd" data-k="a">1</span><span class="hd" data-k="b">2</span></div>
+        <div class="mh" id="mh" aria-hidden="true"><i class="t"></i><i class="b"></i><b></b></div></div>
+      <p class="note" id="o-look"></p>
+      <div class="row"><button type="button" class="btn" id="o-reset">Back to ARX red</button></div></section>
+    <section><h3>Layout</h3><div class="seg" id="o-order"><button type="button" data-o="apps-top" aria-pressed="${L.order !== "files-top"}">Apps on top</button><button type="button" data-o="files-top" aria-pressed="${L.order === "files-top"}">Files on top</button></div></section>
+    <section><h3>Home screen</h3>${info.isDefault ? `<p class="note">Atlas is your Home screen.</p>`
+      : `<p class="note">Atlas isn't your Home screen yet.</p><div class="row"><button type="button" class="btn primary" id="o-home">Make Atlas the Home screen</button></div>`}</section>
+    <section><h3>Usage</h3>${L.usage ? `<p class="note">Apps are sized by how much you use them, and apps unused for two months move to Superseded.</p>`
+      : `<p class="note">Allow usage access and the apps you use most become the biggest tiles, and apps you stopped using move to Superseded. Nothing leaves the phone.</p><div class="row"><button type="button" class="btn" id="o-usage">Allow usage access</button></div>`}</section>
+    <section><h3>Atlas</h3><p class="note">${signedIn ? `Signed in${L.files.generated ? ", map from " + esc(L.files.generated.replace("T", " ").slice(0, 16)) : ""}.` : err === "not signed in" ? "Not signed in to Atlas yet." : "Can't reach Atlas right now. Check that Tailscale is on."}</p>
       <div class="path">${esc(info.server || "")}</div>
-      ${signedIn ? "" : `<label class="note" for="o-code">Pairing code</label><input id="o-code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false"><div class="row"><button type="button" class="btn" id="o-pair">Sign in to Atlas</button></div>`}</div>
-    <div class="opt"><h4>Version</h4><p class="note">Atlas launcher ${esc(info.version || "")}</p><div class="row"><button type="button" class="btn" id="o-upd">Check for an update</button></div><p class="note" id="o-updn"></p></div>`, P => {
-    P.querySelectorAll(".swatches button").forEach(b => b.onclick = () => setTone(b.dataset.k));
-    P.querySelectorAll("#o-order button").forEach(b => b.onclick = () => { L.order = b.dataset.o; savePref("order", L.order); applyOrder(); setSeg("#o-order", "o", L.order); renderHome(); });
-    if (P.querySelector("#o-home")) P.querySelector("#o-home").onclick = () => fire("home.request");
-    if (P.querySelector("#o-usage")) P.querySelector("#o-usage").onclick = () => fire("usage.request");
-    if (P.querySelector("#o-pair")) P.querySelector("#o-pair").onclick = () => { const c = P.querySelector("#o-code").value.trim(); if (c) { fire("pair", { code: c }); closeSheet(); toast("Signing in to Atlas"); } };
-    P.querySelector("#o-upd").onclick = async () => {
-      const n = P.querySelector("#o-updn"); n.textContent = "Asking Atlas";
-      try {
-        const u = await native("update.check");
-        if (!u.available) { n.textContent = "This is the newest version."; return; }
-        n.innerHTML = `Version ${esc(u.version)} is ready${u.notes ? ": " + esc(u.notes) : "."} <button type="button" class="btn primary" id="o-inst">Update</button>`;
-        P.querySelector("#o-inst").onclick = () => { n.textContent = "Downloading. Android will ask you to confirm."; fire("update.install"); };
-      } catch (e) { n.textContent = "Couldn't check: " + e.message; }
-    };
+      ${signedIn ? "" : `<label class="note" for="o-code">Pairing code</label><input id="o-code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false"><div class="row"><button type="button" class="btn" id="o-pair">Sign in to Atlas</button></div>`}</section>
+    <section><h3>Version</h3><p class="note">Atlas launcher ${esc(info.version || "")}</p><div class="row"><button type="button" class="btn" id="o-upd">Check for an update</button></div><p class="note" id="o-updn"></p></section>
+    <section><h3>Quit</h3><p class="note">Go back to the phone's own launcher. Atlas stays installed with everything you set: open it from your apps to come back.</p>
+      <div class="row"><button type="button" class="btn quit" id="o-quit">Quit Atlas</button></div></section>
+  </div>`;
+  wheelControl($("#wheel"));
+  $$("#o-mode button").forEach(b => b.onclick = () => { theme().mode = b.dataset.m; setSeg("#o-mode", "m", b.dataset.m); applyTheme(); saveTheme(); paintLook(); });
+  $("#o-reset").onclick = () => { L.theme = JSON.parse(JSON.stringify(DEF_THEME)); setSeg("#o-mode", "m", "solid"); applyTheme(); saveTheme(); paintLook(); };
+  $$("#o-order button").forEach(b => b.onclick = () => { L.order = b.dataset.o; savePref("order", L.order); applyOrder(); applyTheme(); setSeg("#o-order", "o", L.order); paintLook(); });
+  if ($("#o-home")) $("#o-home").onclick = () => fire("home.request");
+  if ($("#o-usage")) $("#o-usage").onclick = () => fire("usage.request");
+  if ($("#o-pair")) $("#o-pair").onclick = () => { const c = $("#o-code").value.trim(); if (c) { fire("pair", { code: c }); toast("Signing in to Atlas"); } };
+  $("#o-upd").onclick = async () => {
+    const n = $("#o-updn"); n.textContent = "Asking Atlas";
+    try {
+      const u = await native("update.check");
+      if (!u.available) { n.textContent = "This is the newest version."; return; }
+      n.innerHTML = `Version ${esc(u.version)} is ready${u.notes ? ": " + esc(u.notes) : "."} <button type="button" class="btn primary" id="o-inst">Update</button>`;
+      $("#o-inst").onclick = () => { n.textContent = "Downloading. Android will ask you to confirm."; fire("update.install"); };
+    } catch (e) { n.textContent = "Couldn't check: " + e.message; }
+  };
+  let armed = 0;
+  $("#o-quit").onclick = () => {
+    const b = $("#o-quit");
+    if (Date.now() - armed > 4000) { armed = Date.now(); b.textContent = "Tap again to quit"; setTimeout(() => { if (Date.now() - armed >= 4000) b.textContent = "Quit Atlas"; }, 4100); return; }
+    fire("quit");
+  };
+}
+
+// The wheel: hue around the circle, strength from the gray middle to the edge, at the lightness of Atlas's tiles.
+// Drag the handle (in a gradient, the nearer of the two) to change the color.
+const CMAX = 0.2;
+function oklchRgb(l, C, h) {
+  const a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+  const L_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3, M_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3, S_ = (l - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const f = x => { x = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; return Math.round(255 * Math.min(1, Math.max(0, x))); };
+  return [f(4.0767416621 * L_ - 3.3077115913 * M_ + 0.2309699292 * S_), f(-1.2684380046 * L_ + 2.6097574011 * M_ - 0.3413193965 * S_), f(-0.0041960863 * L_ - 0.7034186147 * M_ + 1.7076147010 * S_)];
+}
+function wheelControl(el) {
+  const cv = el.querySelector("canvas"), size = el.getBoundingClientRect().width || 220;
+  const S = Math.round(size * Math.min(2, window.devicePixelRatio || 1));
+  cv.width = S; cv.height = S;
+  const ctx = cv.getContext("2d"), img = ctx.createImageData(S, S), d = img.data, R = S / 2;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = x + .5 - R, dy = R - y - .5, r = Math.hypot(dx, dy) / R, i = (y * S + x) * 4;
+    if (r > 1) continue;
+    const [rr, gg, bb] = oklchRgb(.63, r * CMAX, (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360);
+    d[i] = rr; d[i + 1] = gg; d[i + 2] = bb; d[i + 3] = r > .985 ? Math.round(255 * (1 - r) / .015) : 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  let active = "a", drag = false;
+  const at = e => {
+    const r = el.getBoundingClientRect(), R = r.width / 2;
+    let dx = e.clientX - r.left - R, dy = R - (e.clientY - r.top), rad = Math.hypot(dx, dy) / R;
+    if (rad > 1) rad = 1;
+    return { h: +((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360).toFixed(1), c: +(rad * CMAX).toFixed(3) };
+  };
+  const dist = (p, x) => { const k = Math.PI / 180; return Math.hypot(p.c * Math.cos(p.h * k) - x.c * Math.cos(x.h * k), p.c * Math.sin(p.h * k) - x.c * Math.sin(x.h * k)); };
+  const set = v => { theme()[active] = v; applyTheme(); paintLook(); };
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault(); drag = true; try { el.setPointerCapture(e.pointerId); } catch (x) {}
+    const v = at(e), t = theme();
+    active = t.mode === "gradient" && dist(v, t.b) < dist(v, t.a) ? "b" : "a";
+    set(v);
   });
+  el.addEventListener("pointermove", e => { if (drag) set(at(e)); });
+  const end = () => { if (!drag) return; drag = false; saveTheme(); haptic("tick"); };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  paintLook();
+}
+function paintLook() {
+  const t = theme(), el = $("#wheel"); if (!el) return;
+  const R = el.getBoundingClientRect().width / 2;
+  for (const k of ["a", "b"]) {
+    const h = el.querySelector(`.hd[data-k="${k}"]`), x = t[k], r = Math.min(1, x.c / CMAX) * R, ang = x.h * Math.PI / 180;
+    h.hidden = k === "b" && t.mode !== "gradient";
+    h.style.left = (R + r * Math.cos(ang)).toFixed(1) + "px"; h.style.top = (R - r * Math.sin(ang)).toFixed(1) + "px";
+    h.style.background = okl(.63, x);
+  }
+  const [top, bottom] = boxColors(t), mh = $("#mh");
+  mh.querySelector(".t").style.background = top; mh.querySelector(".b").style.background = bottom;
+  const word = x => `hue ${Math.round(x.h)}°, strength ${Math.round(100 * x.c / CMAX)}%`;
+  $("#o-look").textContent = t.mode === "gradient" ? `1: ${word(t.a)} · 2: ${word(t.b)}` : word(t.a);
 }
 
 // ---- search ----------------------------------------------------------------------------------------------
@@ -794,21 +882,18 @@ function renderList() {
 $("#box-apps").onclick = openApps;
 $("#box-files").onclick = openFilesView;
 $("#homebtn").onclick = goHome;
-$("#optbtn").onclick = optionsSheet;
+$("#optbtn").onclick = () => show("settings");
 $$("#views button").forEach(b => b.onclick = () => { L.view = b.dataset.v; L.tz = null; resetMZ(); setSeg("#views", "v", L.view); savePref("view", L.view); renderApps(); });
 $$("#metric button").forEach(b => b.onclick = () => { L.metric = b.dataset.m; resetMZ(); setSeg("#metric", "m", L.metric); savePref("metric", L.metric); renderApps(); });
-$("#tones").innerHTML = swatchHtml();
-$$("#tones button").forEach(b => b.onclick = () => { setTone(b.dataset.k); closeTones(); });
-$("#tonebtn").onclick = e => { e.stopPropagation(); const t = $("#tones"); t.hidden = !t.hidden; $("#tonebtn").setAttribute("aria-expanded", String(!t.hidden)); };
-document.addEventListener("click", e => { if (!$("#tones").hidden && !e.target.closest(".tonebox")) closeTones(); });
+$("#tonebtn").onclick = () => show("settings");                       // the color dot opens Settings, Appearance first
 let rt = 0;
-window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) openDial(); refreshScreen(); }, 120); });
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) openDial(); if (L.screen !== "settings") refreshScreen(); }, 120); });
 
 (async function start() {
-  applyTone(L.tone);
+  applyTheme();
   await loadRules();
   await loadPrefs();
-  applyTone(L.tone); applyOrder();
+  applyOrder(); applyTheme();
   await Promise.allSettled([loadApps(), loadFiles()]);
   classifyAll();
   lastRefresh = Date.now();

@@ -14,7 +14,7 @@ class Prefs(ctx: Context) {
     private val lock = Any()
 
     companion object {
-        val PAGE_KEYS = setOf("pins", "over", "order", "tone", "view", "metric", "cats")
+        val PAGE_KEYS = setOf("pins", "over", "order", "tone", "theme", "view", "metric", "cats")
         const val MAX_PINS = 10
         private const val DAY = 86_400_000L
     }
@@ -39,6 +39,9 @@ class Prefs(ctx: Context) {
         if (key !in PAGE_KEYS) throw IllegalArgumentException("unknown setting")
         synchronized(lock) { write(key, value) }
     }
+
+    /** The launcher's color (Settings, Appearance) as JSON, for Atlas in the Files view; empty when never set. */
+    fun themeJson(): String = synchronized(lock) { (read("theme") as? JSONObject)?.toString() ?: "" }
 
     fun string(key: String, def: String = ""): String = synchronized(lock) { (read(key) as? String) ?: def }
     fun setString(key: String, value: String) = synchronized(lock) { write(key, value) }

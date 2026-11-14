@@ -16,7 +16,11 @@
   #files.on { visibility: visible; pointer-events: auto; z-index: 3; }
   #home { z-index: 2; }
   #app { position: absolute; inset: 0; z-index: 5; background: #000; display: grid; place-items: center; text-align: center; padding: 24px; }
-  #app[hidden] { display: none; }
+  #app[hidden], #quit[hidden] { display: none; }
+  #quit { position: absolute; inset: 0; z-index: 6; background: #26282c; display: grid; place-items: center; text-align: center; padding: 28px; }
+  #quit h2 { font-weight: 300; font-size: 24px; margin: 0 0 10px; }
+  #quit p { color: #b9bbc0; max-width: 19rem; margin: 0 auto 18px; }
+  #quit button { font: 16px Arial, sans-serif; padding: 12px 18px; background: #F3F1EC; color: #000; border: 0; border-radius: 4px; }
   #app img { width: 96px; height: 96px; }
   #app h2 { font-weight: 300; font-size: 28px; margin: 18px 0 8px; }
   #app p { color: #8E9096; max-width: 18rem; margin: 0 auto; }
@@ -35,6 +39,7 @@
     <iframe id="home" src="launcher.html" title="Atlas launcher, home"></iframe>
     <iframe id="files" src="atlas.html" title="Atlas, files"></iframe>
     <div id="app" hidden><div><img alt="" id="app-ic"><h2 id="app-nm"></h2><p>In the real launcher this is the app itself. Home or Back brings you back.</p></div></div>
+    <div id="quit" hidden><div><h2>Your phone's own launcher</h2><p>After Quit, Android goes back to the launcher the phone came with. Atlas stays installed: open it from your apps to come back.</p><button type="button" id="q-back">Open Atlas from your apps</button></div></div>
     <div id="toast" hidden></div>
   </div>
   <nav aria-label="Android buttons"><span id="tag">Preview, sample apps and files</span><button type="button" id="b-back" aria-label="Back">◁</button><button type="button" id="b-home" aria-label="Home">○</button></nav>
@@ -76,9 +81,13 @@
     openFile(path, dir) { showFiles(); const go = () => { try { if (fw().atlasOpen) { fw().atlasOpen(path, dir); return; } } catch (e) {} setTimeout(go, 200); }; go(); },
     launch(label, icon) { $("#app-ic").src = icon; $("#app-nm").textContent = label; $("#app").hidden = false; },
     haptic(k) { try { navigator.vibrate && navigator.vibrate(k === "tick" ? 6 : 22); } catch (e) {} },
+    theme(t) { try { fw().atlasTheme && fw().atlasTheme(t); } catch (e) {} },
+    quit() { $("#quit").hidden = false; },
   };
-  $("#b-home").onclick = goHome;
+  $("#q-back").onclick = () => { $("#quit").hidden = true; goHome(); };
+  $("#b-home").onclick = () => { if ($("#quit").hidden) goHome(); };
   $("#b-back").onclick = () => {
+    if (!$("#quit").hidden) return;
     if (!$("#app").hidden) { $("#app").hidden = true; return; }
     if (filesOn) { let used = false; try { used = fw().atlasBack ? fw().atlasBack() : false; } catch (e) {} if (!used) goHome(); return; }
     try { hw().launcherBack && hw().launcherBack(); } catch (e) {}

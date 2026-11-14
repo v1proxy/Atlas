@@ -43,27 +43,25 @@ input[type=search]:focus { border-color: var(--dim); }
 .seg button { font: 400 12px/1 var(--f-body); color: var(--dim); background: none; border: 0; padding: 8px 9px; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--ink); }
-.tonebox { position: relative; }
-.tonebtn { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); display: grid; place-items: center; cursor: pointer; padding: 0; }
-.tonebtn i { width: 16px; height: 16px; border-radius: 50%; background: var(--r3); display: block; }
-.tones { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(4, 26px); gap: 12px; }
-.tones button, .swatches button { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); padding: 0; cursor: pointer; }
-.tones button[aria-pressed="true"], .swatches button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 2px var(--surface); }
+.tonebtn { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); display: grid; place-items: center; cursor: pointer; padding: 0; flex: none; }
+.tonebtn i { width: 16px; height: 16px; border-radius: 50%; background: var(--dot, var(--r3)); display: block; }
 .crumbs { display: flex; gap: 4px; align-items: center; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .crumbs button { font: 400 13px var(--f-body); color: var(--ink); background: none; border: 0; padding: 2px 4px; cursor: pointer; }
 .crumbs span { color: var(--dim); }
 body:not([data-screen="apps"]) .only-apps { display: none !important; }
+body[data-screen="settings"] .tools { display: none; }
 
 /* ---- home: two boxes, a black band between them and the circle on it ------------------------------------ */
-#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 15.5px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
 /* The band: black, a white line through its middle from each side of the circle to the screen's edge. The black on either
    side of the line is as thick as the black between the circle's white ring and the red (7px). */
-#home::before, #home::after { content: ""; position: absolute; top: 50%; height: 2px; margin-top: -1px; background: var(--ink); z-index: 21; pointer-events: none; }
-#home::before { left: 0; right: calc(50% + 37px); }
-#home::after { right: 0; left: calc(50% + 37px); }
+#home::before, #home::after { content: ""; position: absolute; top: 50%; height: 1.5px; margin-top: -.75px; background: var(--ink); z-index: 21; pointer-events: none; }
+#home::before { left: 8px; right: calc(50% + 37px); }          /* the lines end where the boxes end */
+#home::after { right: 8px; left: calc(50% + 37px); }
 .box { position: relative; display: block; border: 0; border-radius: 0; margin: 0; padding: 0; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
-.box.apps { background: var(--r3); color: var(--t2); }
-.box.files { background: var(--r2); color: var(--t2); }
+.box { color: var(--t2); }
+.box.top { background: var(--top-bg, var(--r3)); }                /* one color: Apps lighter, Files deeper; a gradient runs top to bottom */
+.box.bottom { background: var(--bottom-bg, var(--r2)); }
 /* Each name sits in the box's outer corner, Apps and Files on opposite corners. */
 .box .lbl { position: absolute; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; }
 .box .v { position: absolute; max-width: calc(100% - 34px); font: 12px/1.45 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -180,3 +178,23 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: var(--ink); color: var(--bg); font: 400 13px var(--f-body); padding: 8px 14px; border-radius: 4px; max-width: calc(100% - 32px); }
 .banner { margin: 16px 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, .hub span { transition: none; } }
+
+/* ---- Settings ---------------------------------------------------------------------------------------------------- */
+#settings { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.set { padding: 0 16px calc(28px + env(safe-area-inset-bottom, 0px)); display: grid; }
+.set section { border-bottom: 1px solid var(--line); padding: 4px 0 18px; display: grid; gap: 10px; }
+.set .seg { justify-self: start; }
+.set h3 { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 16px 0 2px; }
+.set input { font: 15px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+.wheelrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; margin-top: 6px; }
+.wheel { position: relative; width: min(230px, 100%); aspect-ratio: 1 / 1; touch-action: none; cursor: crosshair; }
+.wheel canvas { width: 100%; height: 100%; display: block; border-radius: 50%; }
+.wheel .hd { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #000, 0 2px 8px rgba(0, 0, 0, .5);
+  display: grid; place-items: center; font: 500 11px var(--f-mono); color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
+.wheel .hd[hidden] { display: none; }
+/* A small Home to judge the color on: two boxes, the band with its line, the circle. */
+.mh { position: relative; width: 78px; height: 140px; display: grid; grid-template-rows: 1fr 1fr; gap: 5px; padding: 3px; background: #000; border: 1px solid var(--line); }
+.mh i { display: block; }
+.mh::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1px; margin-top: -.5px; background: var(--ink); }
+.mh b { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #000; border: 1px solid var(--ink); box-shadow: 0 0 0 2px #000; }
+.btn.quit { border-color: #C8362F; color: #FAC4C6; }
