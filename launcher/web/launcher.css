@@ -55,9 +55,14 @@ input[type=search]:focus { border-color: var(--dim); }
 body:not([data-screen="apps"]) .only-apps { display: none !important; }
 
 /* ---- home: two boxes, a black band between them and the circle on it ------------------------------------ */
-#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+/* The band: black, a white line through its middle from each side of the circle to the screen's edge. The black on either
+   side of the line is as thick as the black between the circle's white ring and the red (7px). */
+#home::before, #home::after { content: ""; position: absolute; top: 50%; height: 2px; margin-top: -1px; background: var(--ink); z-index: 21; pointer-events: none; }
+#home::before { left: 0; right: calc(50% + 37px); }
+#home::after { right: 0; left: calc(50% + 37px); }
 .box { position: relative; display: block; border: 0; border-radius: 0; margin: 0; padding: 0; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
-.box.apps { background: var(--r3); color: var(--t3); }
+.box.apps { background: var(--r3); color: var(--t2); }
 .box.files { background: var(--r2); color: var(--t2); }
 /* Each name sits in the box's outer corner, Apps and Files on opposite corners. */
 .box .lbl { position: absolute; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; }
