@@ -907,6 +907,25 @@ if (LAUNCHER) {                                                      // the Atla
   const h1 = $("header h1"); h1.setAttribute("role", "button"); h1.tabIndex = 0; h1.title = "Home";
   h1.onclick = () => launcherCall("home"); h1.onkeydown = e => { if (e.key === "Enter") launcherCall("home"); };
 }
+// In the launcher, swiping right goes Back, as on its home page: a quick, mostly sideways swipe that didn't move a map or a strip.
+if (LAUNCHER) (function swipeBack() {
+  let s = null;
+  const pose = () => { const z = document.querySelector("#map .tmz, #map .treesvg > g"); return z ? (z.getAttribute("transform") || "") + (z.style.transform || "") : ""; };
+  const hscroll = el => { for (; el && el !== document.body; el = el.parentElement) if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return el; return null; };
+  document.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || (e.target.closest && e.target.closest("input, select, textarea, canvas, video, .wheel"))) { s = null; return; }
+    const h = hscroll(e.target);
+    s = { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now(), pose: pose(), h, hx: h ? h.scrollLeft : 0 };
+  }, { passive: true });
+  document.addEventListener("touchend", e => {
+    const t = s; s = null;
+    if (!t || e.touches.length) return;
+    const c = e.changedTouches[0], dx = c.clientX - t.x, dy = c.clientY - t.y;
+    if (dx < 70 || Math.abs(dy) > dx * .6 || Date.now() - t.at > 700 || pose() !== t.pose || (t.h && t.h.scrollLeft !== t.hx)) return;
+    if (!window.atlasBack()) launcherCall("home");
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { s = null; }, { passive: true });
+})();
 $("#lock").onclick = () => {
   const pc = /^(127\.0\.0\.1|localhost)(:|$)/.test(location.host);
   if (confirm(pc ? "Lock Atlas in this browser? Open it again from the Start menu." : "Lock Atlas on this phone? To open it again you'll need a new pairing code.")) location.replace("/logout");

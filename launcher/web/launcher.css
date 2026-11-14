@@ -14,6 +14,7 @@
   --t1: #ffffff; --t2: #ffffff; --t3: #121212; --t4: #121212;
   --warn: #FAC4C6; --ok: #8E9096;
   --veil: rgba(0, 0, 0, .74); --box-ink: var(--t2);
+  --ctl: 30px;                                                      /* the height of the buttons, and the Settings circle */
   --f-body: "IBM Plex Sans", Arial, sans-serif;
   --f-mono: "IBM Plex Mono", Consolas, monospace;
   color-scheme: dark;
@@ -48,11 +49,12 @@ input[type=search]:focus { border-color: var(--dim); }
 .btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); font-weight: 500; }
 .btn:disabled { opacity: .45; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--surface); }
-.seg button { font: 400 12px/1 var(--f-body); color: var(--dim); background: none; border: 0; padding: 8px 9px; cursor: pointer; }
+.seg button { font: 400 12px/1 var(--f-body); color: var(--dim); background: none; border: 0; padding: 0 9px; height: calc(var(--ctl) - 2px); cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--ink); }
 /* Settings: an empty circle beside the search (a wheel, simplified). */
-.tonebtn { width: 34px; height: 34px; border: 1px solid var(--ink); border-radius: 50%; background: none; cursor: pointer; padding: 0; flex: none; margin: 0 2px; }
+/* As tall as the buttons, its right edge in line with the search field's. */
+.tonebtn { width: var(--ctl); height: var(--ctl); border: 1px solid var(--ink); border-radius: 50%; background: none; cursor: pointer; padding: 0; flex: none; margin: 0 0 0 auto; }
 .tonebtn:active { transform: scale(.94); }
 .crumbs { display: flex; gap: 4px; align-items: center; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .crumbs button { font: 400 13px var(--f-body); color: var(--ink); background: none; border: 0; padding: 2px 4px; cursor: pointer; }
@@ -164,6 +166,23 @@ body[data-screen="settings"] .tools { display: none; }
 .lrow .num { font: 12px var(--f-mono); color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
 .lrow.hit .t { text-decoration: underline; }
 .lhead { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); cursor: default; }
+/* Categories in the List view: − beside each (tap twice to take it out), + at the bottom to add one. */
+.catdel { justify-self: end; min-width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: none; color: var(--dim);
+  font: 300 18px/1 var(--f-body); display: grid; place-items: center; cursor: pointer; }
+.catdel.sure { padding: 0 9px; color: var(--warn); border-color: var(--warn); font: 500 10px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; }
+.lrow.addcat { color: var(--dim); }
+.lrow .plus { width: 26px; height: 26px; flex: none; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; font: 300 18px/1 var(--f-body); color: var(--ink); }
+
+/* Moving an app: it lifts, its name follows the finger, and the place under the finger is outlined. */
+.ghost { position: fixed; z-index: 70; pointer-events: none; transform: translate(-50%, calc(-100% - 28px)); background: var(--ink); color: var(--bg);
+  font: 500 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; padding: 8px 10px; border-radius: 3px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+.lifted { opacity: .3; }
+body.dragging .region { pointer-events: auto; }                       /* while an app is dragged, every region is a place to drop it */
+.tile.drop, .region.drop, .lrow.drop { outline: 2px solid var(--ink); outline-offset: -2px; }
+.region.drop { background: color-mix(in oklab, var(--ink) 8%, transparent); }
+.lrow.drop { background: var(--surface-2); }
+.treesvg .node.drop circle { stroke: var(--ink); stroke-width: 3; }
+.treesvg .node.drop text { text-decoration: underline; }
 
 /* ---- search results on the home screen ------------------------------------------------------------- */
 .results { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--bg); overflow: auto; padding: 4px 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
@@ -200,7 +219,7 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .opt h4 { margin: 0; font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
 .swatches { display: flex; flex-wrap: wrap; gap: 12px; }
 .path { font: 12px/1.4 var(--f-mono); color: var(--dim); overflow-wrap: anywhere; }
-.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: var(--ink); color: var(--bg); font: 400 13px var(--f-body); padding: 8px 14px; border-radius: 4px; max-width: calc(100% - 32px); }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: var(--ink); color: var(--bg); font: 400 13px var(--f-body); padding: 8px 14px; border-radius: 4px; max-width: calc(100% - 32px); pointer-events: none; }
 .banner { margin: 16px 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, #title { transition: none !important; } }
 

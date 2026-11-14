@@ -10,7 +10,8 @@ Atlas as an Android phone's Home screen. A frame like Atlas on top, then the scr
 - **Tap the circle** for the dial. The cross spins while your pinned names come out of the circle onto three rings: apps toward the Apps box, files and folders toward the Files box, the most used first and nearest. Tap a name to open it. Tap the circle again and the names go back in while the cross spins the other way.
 - **Hold the circle** to take names off the dial: they come out gray, a first tap turns one red, a second tap takes it off.
 - **Everywhere, one tap opens and a long press offers more**, including Add to dial: on an app, a folder or a file.
-- **Tap the name on the left** to go back Home, from any screen, Files included.
+- **Hold an app and drag it** onto a category to move it there, on the treemap, the tree or the list. Let go without moving to see its details instead.
+- **Tap the name on the left** to go back Home, from any screen, Files included. **Swiping right** goes back too, anywhere.
 - **The empty circle beside the search** opens Settings. **Hold it** to swap black and ivory: the background turns ivory, and the text, the lines and the circle turn black.
 - Names only: no app icons anywhere, on the maps or on the dial.
 
@@ -30,9 +31,13 @@ On each ring the most used sits in the middle, then to its left and right.
 - **Home screen**, **Usage access**, **Atlas sign-in**, **Version and updates**.
 - **Quit**: hands the phone back to its own launcher (tap it twice). Opening Atlas from the apps makes it the Home screen again.
 
+## Categories
+
+The Apps map uses your Atlas categories. In the List view each category has a **−** beside it: tap it, then **Sure?**, to take the category out of the launcher; its apps are sorted again among the others. **Add a category** at the bottom of the list adds one, numbered after the last unless you give it a number; categories with no apps yet are listed just above it, ready to drag apps onto. These changes are the launcher's own: Atlas's folders keep their categories.
+
 ## How apps are placed
 
-Like folders in Atlas, apps are placed by the software and you correct it on the map (long press, then Move). In order: your own move, known package names, the category the app declares (games, music, photos…), apps that came with the phone, keywords in the app's name, then Unsorted. The rules live in `rules.json` (start from [rules.example.json](rules.example.json)); category ids are the numbers of your Atlas categories.
+Like folders in Atlas, apps are placed by the software and you correct it on the map: hold an app and drag it onto a category, or hold, let go, and use Move in its details. In order: your own move, known package names, the category the app declares (games, music, photos…), apps that came with the phone, keywords in the app's name, then Unsorted. The rules live in `rules.json` (start from [rules.example.json](rules.example.json)); category ids are the numbers of your Atlas categories.
 
 States follow use: **Working** is new (installed in the last two weeks) or not sorted yet; **Superseded** is not used for two months; **Current** is everything in use. With Android's usage access allowed, tiles are sized by how much you use each app; without it, by how often you open it from Atlas.
 
@@ -71,4 +76,5 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **Since Baseline 1.** Swiping right goes back, in the launcher and in Files. Hold an app and drag it onto a category (treemap, tree or list); near the edges the list and the tree move by themselves. Categories: − beside each in the List view takes one out, Add a category at the bottom adds one. The Settings circle is as tall as the buttons, and its right edge is in line with the search field's.
 - **Baseline 1 (2026-11-14).** Names only, no icons. The dial: tap to open (the cross spins while the names come out onto three rings by use), tap to close (the same in reverse), hold to take names off. The name on the left goes Home; the Home buttons are gone. The Settings circle beside the search: tap for Settings, hold for black or ivory. A color wheel and two-color gradients that run through every map. A black band with 1px line, ring and cross. Quit.

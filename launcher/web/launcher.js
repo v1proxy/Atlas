@@ -25,7 +25,7 @@ function ago(t) {
 // ---- state --------------------------------------------------------------------------------------------
 const L = {
   screen: "home", apps: [], byKey: {}, usage: false, files: null, filesErr: "",
-  cats: [], states: ["Current", "Superseded", "Working"],
+  cats: [], atlasCats: [], catEdits: { add: [], del: [] }, states: ["Current", "Superseded", "Working"],
   pins: { apps: [], files: [] }, over: {}, order: "apps-top", theme: null, use: {},
   view: "treemap", metric: "use", zoom: [], q: "", tz: null,
   open: new Set(["Apps", "Current", "Superseded", "Working"]),
@@ -120,6 +120,47 @@ function catLabel(id) {
   if (id === RULES.unsorted) return unsortedLabel();
   return L.cats.find(c => c.startsWith(id + " ")) || (L.cats.length ? null : (RULES.categories || {})[id]) || null;
 }
+// The categories for apps: Atlas's own (from your Atlas), less the ones you took out and plus the ones you added, both in
+// the List view (− beside a category, + at the bottom). Unsorted always stays. Atlas's folders keep their categories.
+const isUnsorted = c => /^unsorted$/i.test(c);
+const catNum = c => { const m = /^(\d+)\s/.exec(c); return m ? +m[1] : 1e6; };
+function setCats() {
+  const base = L.atlasCats.length ? L.atlasCats : Object.values(RULES.categories || {}), del = new Set(L.catEdits.del);
+  const out = base.filter(c => !del.has(c));
+  for (const c of L.catEdits.add) if (!out.includes(c)) out.push(c);
+  if (!out.some(isUnsorted)) out.push((RULES.categories || {})[RULES.unsorted] || "Unsorted");
+  L.cats = out.sort((a, b) => (isUnsorted(a) ? 2e6 : catNum(a)) - (isUnsorted(b) ? 2e6 : catNum(b)) || a.localeCompare(b));
+}
+function addCategory(name) {
+  name = name.replace(/\s+/g, " ").trim(); if (!name) return;
+  if (!/^\d+\s/.test(name)) name = String(Math.max(0, ...L.cats.map(catNum).filter(n => n < 1e6)) + 1).padStart(2, "0") + " " + name;
+  if (L.cats.some(c => c.toLowerCase() === name.toLowerCase())) return toast(`${name} is already there`);
+  const d = L.catEdits.del.indexOf(name);
+  if (d >= 0) L.catEdits.del.splice(d, 1); else L.catEdits.add.push(name);
+  savePref("catEdits", L.catEdits); setCats(); classifyAll(); refreshScreen();
+  toast(`${name} added. Hold an app and drag it there.`);
+}
+function removeCategory(c) {
+  if (isUnsorted(c)) return;
+  const i = L.catEdits.add.indexOf(c);
+  if (i >= 0) L.catEdits.add.splice(i, 1); else if (!L.catEdits.del.includes(c)) L.catEdits.del.push(c);
+  let moved = 0;
+  for (const [k, o] of Object.entries(L.over)) if (o.category === c) { delete L.over[k]; moved++; }
+  savePref("catEdits", L.catEdits); if (moved) savePref("over", L.over);
+  setCats(); classifyAll(); refreshScreen();
+  toast(`${c} taken out; its apps are sorted again`);
+}
+function addCategorySheet() {
+  openSheet(`<div class="chip">Categories</div><h2>Add a category</h2>
+    <p class="note">For apps, here in the launcher. It gets the next number unless you give it one.</p>
+    <div class="set"><input id="cat-name" type="text" placeholder="Name, like Travel" maxlength="40" autocomplete="off" autocapitalize="words" enterkeyhint="done"></div>
+    <div class="row"><button type="button" class="btn primary" id="cat-add">Add</button></div>`, P => {
+    const go = () => { const v = P.querySelector("#cat-name").value.trim(); if (!v) return; closeSheet(); addCategory(v); };
+    P.querySelector("#cat-add").onclick = go;
+    P.querySelector("#cat-name").onkeydown = e => { if (e.key === "Enter") go(); };
+    setTimeout(() => { try { P.querySelector("#cat-name").focus(); } catch (e) {} }, 260);
+  });
+}
 const pkgMatch = (pkg, p) => p.endsWith("*") ? pkg.startsWith(p.slice(0, -1)) : pkg === p;
 const words = a => (a.label + " " + a.pkg.replace(/[._]/g, " ")).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 function lastUse(a) { return Math.max(a.lastUsed || 0, a.lastLaunch || 0); }
@@ -172,10 +213,13 @@ async function loadPrefs() {
     L.pins = p.pins && p.pins.apps ? p.pins : { apps: [], files: [] };
     L.over = p.over || {}; L.order = p.order || "apps-top"; L.view = p.view || "treemap"; L.metric = p.metric || "use";
     L.theme = validTheme(p.theme) || (p.tone ? themeFromTone(p.tone) : L.theme);
-    if (Array.isArray(p.cats) && p.cats.length && !L.cats.length) L.cats = p.cats;
+    if (Array.isArray(p.cats) && p.cats.length && !L.atlasCats.length) L.atlasCats = p.cats.filter(c => typeof c === "string");
+    const ce = p.catEdits || {}, strs = x => Array.isArray(x) ? x.filter(c => typeof c === "string" && c.trim()) : [];
+    L.catEdits = { add: strs(ce.add), del: strs(ce.del) };
     L.use = {};
     if (p.use && typeof p.use === "object") for (const [k, v] of Object.entries(p.use)) if (Array.isArray(v) && isFinite(v[0]) && isFinite(v[1])) L.use[k] = [+v[0], +v[1]];
   } catch (e) { /* first run */ }
+  setCats();
 }
 async function loadApps() {
   try { const r = await native("apps"); L.usage = !!r.usage; L.apps = (r.apps || []).filter(a => a.pkg); }
@@ -193,11 +237,11 @@ async function loadFiles() {
     const cats = {};
     for (const f of fs) cats[f.category] = (cats[f.category] || 0) + (f.gb || 0);
     L.files = { total_files: d.total_files || 0, total_gb: d.total_gb || 0, folders: fs.length, generated: d.generated, missing: d.missing || [], cats: Object.values(cats) };
-    if (Array.isArray(d.categories) && d.categories.length) { L.cats = d.categories; savePref("cats", L.cats); }
+    if (Array.isArray(d.categories) && d.categories.length) { L.atlasCats = d.categories; savePref("cats", d.categories); }
     L.filesErr = "";
   } catch (e) { L.filesErr = e.message || "can't reach Atlas"; }
   if (!L.theme) try { const s = await server("/settings"); if (s.tone) { L.theme = themeFromTone(s.tone); applyTheme(); saveTheme(); } } catch (e) {}  // start from Atlas's color
-  if (!L.cats.length) L.cats = Object.values(RULES.categories || {});
+  setCats();
   classifyAll();
 }
 let lastRefresh = 0;
@@ -808,6 +852,7 @@ function renderTreemap() {
     if (node.type === "cat") { pad = w > 12 && h > 12 ? 3 : 0; top = (w >= 80 && h >= 46) ? 18 : 0; }
     if (node.type !== "root") {
       const r = document.createElement("div"); r.className = "region " + node.type;
+      r.dataset.drop = node.type; r.dataset.state = node.path[0]; if (node.type === "cat") r.dataset.cat = node.label;
       Object.assign(r.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
       if (top) {
         const hb = document.createElement("button"); hb.type = "button"; hb.className = "h";
@@ -838,7 +883,7 @@ function appTile(box, a, x, y, w, h) {
   tint(t, (y + h / 2) / TH);
   const m = metricText(a);
   if (named) t.innerHTML = `<span class="n">${esc(a.label)}</span>` + (m && h >= 40 ? `<span class="v">${esc(m)}</span>` : "");
-  pressable(t, () => launch(a, t), () => appSheet(a));
+  grab(t, a, () => launch(a, t));
   box.appendChild(t);
 }
 function treemapZoom(map, box, W, H) {
@@ -859,7 +904,7 @@ function treemapZoom(map, box, W, H) {
   const pts = new Map(); let pinch = null, moved = 0;
   box.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; clearTimeout(timer); });
   box.addEventListener("pointermove", e => {
-    if (!pts.has(e.pointerId)) return;
+    if (!pts.has(e.pointerId) || drag) return;                           // an app being dragged doesn't move the map
     const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
     if (pts.size === 1) { moved += Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]); if (moved > 8) { T.x += p1[0] - p0[0]; T.y += p1[1] - p0[1]; clamp(); } return; }
     const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -932,6 +977,8 @@ function renderTree() {
     const leaf = n.type === "app", closed = n.kids.length > 0 && !n.open;
     const g = document.createElementNS(ns, "g");
     g.setAttribute("class", "node " + n.type + (leaf && n.match ? " hit" : "")); g.setAttribute("transform", `translate(${X(n)},${n.y})`);
+    if (leaf) g.setAttribute("data-k", n.a.key);
+    else if (n.type !== "root") { g.setAttribute("data-drop", n.type); g.setAttribute("data-state", n.type === "state" ? n.label : n.key.split("/")[0]); if (n.type === "cat") g.setAttribute("data-cat", n.label); }
     const c = document.createElementNS(ns, "circle"); c.setAttribute("r", leaf ? 5.5 : R);
     c.setAttribute("class", (leaf ? "a" + age(n.a) : "g") + (closed ? " closed" : ""));
     tint(c, n.y / Math.max(1, row * RH));
@@ -940,7 +987,7 @@ function renderTree() {
     const num = leaf ? metricText(n.a) : n.n + " apps";
     t.innerHTML = `${esc(lab)}<tspan class="m" dx="8">${esc(num)}</tspan>`;
     g.append(c, t);
-    if (leaf) pressable(g, () => launch(n.a), () => appSheet(n.a)); else g.addEventListener("click", () => toggleNode(n));
+    if (leaf) grab(g, n.a, () => launch(n.a)); else g.addEventListener("click", () => toggleNode(n));
     ng.appendChild(g);
   };
   draw(root);
@@ -960,11 +1007,12 @@ function treeZoom(svg, g, W0, H0) {
   };
   const zoomAt = (k, cx, cy) => { k = Math.min(MAX, Math.max(fit, k)); T.x = cx - (cx - T.x) * k / T.k; T.y = cy - (cy - T.y) * k / T.k; T.k = k; clamp(); };
   clamp();
+  L.treePan = (dx, dy) => { T.x += dx; T.y += dy; clamp(); };
   const pts = new Map(); let pinch = null, moved = 0;
   const at = e => { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   svg.addEventListener("pointerdown", e => { pts.set(e.pointerId, at(e)); if (pts.size === 1) moved = 0; pinch = null; });
   svg.addEventListener("pointermove", e => {
-    if (!pts.has(e.pointerId)) return;
+    if (!pts.has(e.pointerId) || drag) return;
     const p0 = pts.get(e.pointerId), p1 = at(e); pts.set(e.pointerId, p1);
     if (pts.size === 1) { T.x += p1[0] - p0[0]; T.y += p1[1] - p0[1]; moved += Math.abs(p1[0] - p0[0]) + Math.abs(p1[1] - p0[1]); clamp(); return; }
     const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -988,18 +1036,150 @@ function renderList() {
   const walk = (n, d) => {
     for (const k of n.kids) {
       const leaf = k.type === "app", open = k.kids.length > 0 && isOpen(k);
+      if (k.type === "cat") { box.appendChild(catRow(k.label, fmtN(k.n), d, open ? "▾" : "▸", k.key.split("/")[0], () => toggleNode(k))); if (open) walk(k, d + 1); continue; }
       const r = document.createElement("button"); r.type = "button";
-      r.className = "lrow" + (k.type === "state" ? " g1" : k.type === "cat" ? " g2" : "") + (leaf && k.match ? " hit" : "");
+      r.className = "lrow" + (k.type === "state" ? " g1" : "") + (leaf && k.match ? " hit" : "");
       r.innerHTML = `<span class="nm" style="padding-left:${d * 16}px"><span class="car">${k.kids.length ? (open ? "▾" : "▸") : ""}</span><span class="t">${esc(k.label)}</span></span>`
         + `<span class="num">${leaf ? esc(metricText(k.a)) : fmtN(k.n)}</span><span class="num">${leaf && lastUse(k.a) ? esc(ago(lastUse(k.a))) : ""}</span>`;
-      if (leaf) pressable(r, () => launch(k.a, r), () => appSheet(k.a)); else r.onclick = () => toggleNode(k);
+      if (leaf) { r.dataset.k = k.a.key; grab(r, k.a, () => launch(k.a, r)); }
+      else { r.dataset.drop = "state"; r.dataset.state = k.label; r.onclick = () => toggleNode(k); }
       box.appendChild(r);
       if (open) walk(k, d + 1);
     }
   };
   walk(root, 0);
+  if (!L.q.trim()) {                                                     // the categories with no apps yet, and +
+    const used = new Set(L.apps.map(a => a.category)), empty = L.cats.filter(c => !used.has(c) && !isUnsorted(c));
+    if (empty.length) {
+      const h = document.createElement("div"); h.className = "lrow lhead"; h.innerHTML = `<span>No apps yet</span><span></span><span></span>`; box.appendChild(h);
+      for (const c of empty) box.appendChild(catRow(c, "0", 0, "", "", null));
+    }
+    const add = document.createElement("button"); add.type = "button"; add.className = "lrow addcat";
+    add.innerHTML = `<span class="nm"><span class="plus" aria-hidden="true">+</span><span class="t">Add a category</span></span><span></span><span></span>`;
+    add.onclick = addCategorySheet; box.appendChild(add);
+  }
   map.appendChild(box);
 }
+// A category in the List view: a place to drop an app, with − beside it to take the category out (tap twice).
+function catRow(label, count, d, car, state, onOpen) {
+  const r = document.createElement("div"); r.className = "lrow g2"; r.setAttribute("role", "button"); r.tabIndex = 0;
+  r.dataset.drop = "cat"; r.dataset.cat = label; if (state) r.dataset.state = state;
+  r.innerHTML = `<span class="nm" style="padding-left:${d * 16}px"><span class="car">${car}</span><span class="t">${esc(label)}</span></span><span class="num">${count}</span>`
+    + (isUnsorted(label) ? `<span></span>` : `<button type="button" class="catdel" aria-label="Take out ${esc(label)}">−</button>`);
+  if (onOpen) { r.onclick = e => { if (!e.target.closest(".catdel")) onOpen(); }; r.onkeydown = e => { if (e.key === "Enter") onOpen(); }; }
+  const del = r.querySelector(".catdel");
+  if (del) {
+    let sure = 0;
+    del.onclick = e => {
+      e.stopPropagation();
+      if (sure && Date.now() - sure < 4000) return removeCategory(label);
+      sure = Date.now(); del.classList.add("sure"); del.textContent = "Sure?"; haptic("tick");
+      setTimeout(() => { if (del.isConnected) { del.classList.remove("sure"); del.textContent = "−"; } sure = 0; }, 4000);
+    };
+  }
+  return r;
+}
+
+// ---- moving apps between categories: hold one, drag it onto a category (or onto another app, to join it) and let go;
+// let go without moving to see its details. Works the same on the treemap, the tree and the list. ----
+let drag = null, pickedAt = 0;
+function grab(el, a, onTap) {
+  let t = 0, x0 = 0, y0 = 0, down = false, fired = false;
+  el.addEventListener("pointerdown", e => {
+    if (drag) endDrag(false);                                            // a finger left over from an earlier drag
+    down = true; fired = false; x0 = e.clientX; y0 = e.clientY; clearTimeout(t); el.classList.add("press");
+    t = setTimeout(() => {
+      el.classList.remove("press");
+      if (!down || fingers > 1) return;
+      fired = true; haptic("long"); pickUp(el, a, e.pointerId, x0, y0);
+    }, 460);
+  });
+  el.addEventListener("pointermove", e => { if (down && !fired && Math.hypot(e.clientX - x0, e.clientY - y0) > 9) { clearTimeout(t); down = false; el.classList.remove("press"); } });
+  ["pointerup", "pointercancel"].forEach(n => el.addEventListener(n, () => { clearTimeout(t); down = false; el.classList.remove("press"); }));
+  el.addEventListener("pointerleave", () => { if (!fired) { clearTimeout(t); down = false; el.classList.remove("press"); } });
+  el.addEventListener("click", e => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; return; } onTap(e); });
+}
+function pickUp(el, a, id, x, y) {
+  const g = document.createElement("div"); g.className = "ghost"; g.textContent = a.label; document.body.appendChild(g);
+  drag = { a, el, id, x0: x, y0: y, x, y, g, moved: false, target: null }; pickedAt = Date.now();
+  el.classList.add("lifted"); document.body.classList.add("dragging");
+  g.style.left = x + "px"; g.style.top = y + "px";
+}
+function dropAt(x, y) {
+  const el = document.elementFromPoint(x, y), t = el && el.closest("[data-drop], [data-k]");
+  if (!t || !$("#map").contains(t)) return null;
+  if (t.dataset.k) { const b = L.byKey[t.dataset.k]; return b ? { el: t, state: b.state, cat: b.category } : null; }
+  return { el: t, state: t.dataset.state || null, cat: t.dataset.cat || null };
+}
+function aim() {
+  const t = dropAt(drag.x, drag.y), was = drag.target && drag.target.el;
+  if ((t && t.el) !== was) { if (was) was.classList.remove("drop"); if (t) t.el.classList.add("drop"); }
+  drag.target = t;
+}
+// Near the top or bottom of the list (or any edge of the tree) the view moves by itself, so every category can be reached.
+let edgeRAF = 0;
+function edgeScroll() {
+  edgeRAF = 0;
+  if (!drag || !drag.moved) return;
+  const m = $("#map"), r = m.getBoundingClientRect(), E = 56;
+  const v = (a, lo, hi) => a < lo + E ? -Math.ceil((lo + E - a) / 5) : a > hi - E ? Math.ceil((a - hi + E) / 5) : 0;
+  const dy = v(drag.y, r.top, r.bottom), dx = v(drag.x, r.left, r.right);
+  if (m.classList.contains("scroll") && dy) { m.scrollTop += dy; aim(); }
+  else if (L.view === "tree" && L.treePan && (dx || dy)) { L.treePan(-dx, -dy); aim(); }
+  edgeRAF = requestAnimationFrame(edgeScroll);
+}
+document.addEventListener("pointermove", e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  drag.g.style.left = e.clientX + "px"; drag.g.style.top = e.clientY + "px";
+  if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 12) drag.moved = true;
+  if (!drag.moved) return;
+  aim();
+  if (!edgeRAF) edgeRAF = requestAnimationFrame(edgeScroll);
+}, true);
+document.addEventListener("pointerup", e => { if (drag && e.pointerId === drag.id) endDrag(true); }, true);
+document.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) endDrag(false); }, true);
+document.addEventListener("touchmove", e => { if (drag) e.preventDefault(); }, { passive: false });   // no scrolling while dragging
+window.addEventListener("blur", () => { if (drag) endDrag(false); });
+document.addEventListener("visibilitychange", () => { if (drag && document.hidden) endDrag(false); });
+function endDrag(drop) {
+  const d = drag; drag = null; cancelAnimationFrame(edgeRAF); edgeRAF = 0;
+  if (!d) return;
+  d.g.remove(); d.el.classList.remove("lifted"); document.body.classList.remove("dragging");
+  if (d.target) d.target.el.classList.remove("drop");
+  if (!drop) return;
+  if (!d.moved) return appSheet(d.a);
+  if (d.target) moveApp(d.a, d.target.state, d.target.cat);
+}
+function moveApp(a, state, cat) {
+  if (!cat || !L.cats.includes(cat)) cat = a.category;
+  if (!L.states.includes(state)) state = a.state === "Working" && isUnsorted(a.category) ? "Current" : a.state;
+  if (state === a.state && cat === a.category) return;
+  L.over[a.key] = { state, category: cat, at: new Date().toISOString().slice(0, 19) };
+  savePref("over", L.over); classifyAll(); refreshScreen(); haptic("tick");
+  toast(`${a.label}: ${cat}${state !== a.state ? ", " + state : ""}`);
+}
+
+// ---- swiping right goes Back, like the phone's own back gesture: a quick, mostly sideways swipe to the right that
+// didn't move a map, drag an app or turn the color wheel. ----
+(function swipeBack() {
+  let s = null;
+  const pose = () => { const z = document.querySelector("#map .tmz, #map .treesvg > g"); return z ? (z.getAttribute("transform") || "") + (z.style.transform || "") : ""; };
+  const hscroll = el => { for (; el && el !== document.body; el = el.parentElement) if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return el; return null; };
+  document.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || (e.target.closest && e.target.closest("input, select, textarea, canvas, video, .wheel"))) { s = null; return; }
+    const h = hscroll(e.target);
+    s = { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now(), pose: pose(), h, hx: h ? h.scrollLeft : 0 };
+  }, { passive: true });
+  document.addEventListener("touchend", e => {
+    const t = s; s = null;
+    if (!t || e.touches.length || pickedAt >= t.at) return;
+    const c = e.changedTouches[0], dx = c.clientX - t.x, dy = c.clientY - t.y;
+    if (dx < 70 || Math.abs(dy) > dx * .6 || Date.now() - t.at > 700 || pose() !== t.pose || (t.h && t.h.scrollLeft !== t.hx)) return;
+    window.launcherBack();
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { s = null; }, { passive: true });
+})();
 
 // ---- wiring --------------------------------------------------------------------------------------------
 $("#box-apps").onclick = openApps;
