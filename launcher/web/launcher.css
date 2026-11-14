@@ -43,8 +43,9 @@ input[type=search]:focus { border-color: var(--dim); }
 .seg button { font: 400 12px/1 var(--f-body); color: var(--dim); background: none; border: 0; padding: 8px 9px; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--ink); }
-.tonebtn { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); display: grid; place-items: center; cursor: pointer; padding: 0; flex: none; }
-.tonebtn i { width: 16px; height: 16px; border-radius: 50%; background: var(--dot, var(--r3)); display: block; }
+/* Settings: an empty circle beside the search (a wheel, simplified). */
+.tonebtn { width: 34px; height: 34px; border: 1.5px solid var(--ink); border-radius: 50%; background: none; cursor: pointer; padding: 0; flex: none; margin: 0 2px; }
+.tonebtn:active { transform: scale(.94); }
 .crumbs { display: flex; gap: 4px; align-items: center; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .crumbs button { font: 400 13px var(--f-body); color: var(--ink); background: none; border: 0; padding: 2px 4px; cursor: pointer; }
 .crumbs span { color: var(--dim); }
@@ -52,10 +53,10 @@ body:not([data-screen="apps"]) .only-apps { display: none !important; }
 body[data-screen="settings"] .tools { display: none; }
 
 /* ---- home: two boxes, a black band between them and the circle on it ------------------------------------ */
-#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 15.5px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+#home { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 15px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
 /* The band: black, a white line through its middle from each side of the circle to the screen's edge. The black on either
    side of the line is as thick as the black between the circle's white ring and the red (7px). */
-#home::before, #home::after { content: ""; position: absolute; top: 50%; height: 1.5px; margin-top: -.75px; background: var(--ink); z-index: 21; pointer-events: none; }
+#home::before, #home::after { content: ""; position: absolute; top: 50%; height: 1px; margin-top: -.5px; background: var(--ink); z-index: 21; pointer-events: none; }
 #home::before { left: 8px; right: calc(50% + 37px); }          /* the lines end where the boxes end */
 #home::after { right: 8px; left: calc(50% + 37px); }
 .box { position: relative; display: block; border: 0; border-radius: 0; margin: 0; padding: 0; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
@@ -75,21 +76,35 @@ body[data-screen="settings"] .tools { display: none; }
 .hub { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; z-index: 20;
   background: var(--bg); border: 2px solid var(--ink); padding: 0; cursor: pointer; display: grid; place-items: center; touch-action: none;
   box-shadow: 0 0 0 7px var(--bg); transition: transform .15s ease; }
-.hub i { position: relative; width: 16px; height: 16px; display: block; }
+.hub i { position: relative; width: 16px; height: 16px; display: block; transition: transform .2s ease; }
 .hub i::before, .hub i::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--ink); }
-.hub i::before { width: 16px; height: 2px; margin: -1px 0 0 -8px; }
-.hub i::after { width: 2px; height: 16px; margin: -8px 0 0 -1px; }
+.hub i::before { width: 16px; height: 1px; margin: -.5px 0 0 -8px; }
+.hub i::after { width: 1px; height: 16px; margin: -8px 0 0 -.5px; }
 .hub.on { transform: scale(1.08); }
+.hub.press { transform: scale(.93); }
+/* Holding turns the cross toward an ×, timed with the hold; opening, it spins while the names come out (launcher.js),
+   ending as a + or, when removing, an ×. */
+.hub.holding i { transform: rotate(45deg); transition: transform .52s linear; }
+.hub.edit i { transform: rotate(45deg); }
 
 /* ---- the dial: names only, apps toward the Apps box, files toward the Files box ------------------------------- */
-.dial { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, .74); }
-.dial .di { position: absolute; width: 86px; min-height: 30px; margin: -15px 0 0 -43px; display: grid; place-items: center; background: none; border: 0; padding: 3px 4px;
+/* The names swing out of the circle onto three rings (launcher.js animates them); here: the veil, the rings' spacing
+   when a name leaves, and a press. */
+.dial { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0); transition: background-color .22s ease; }
+.dial.open { background: rgba(0, 0, 0, .74); }
+.dial.closing { pointer-events: none; }
+.dial .di { position: absolute; width: 96px; min-height: 30px; margin: -15px 0 0 -48px; display: grid; place-items: center; background: none; border: 0; padding: 3px 4px;
   color: var(--ink); cursor: pointer; font: 400 11px/1.25 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; text-align: center;
-  opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.4); transition: opacity .16s ease, transform .2s cubic-bezier(.2, .9, .3, 1.2); }
-.dial.open .di { opacity: 1; transform: none; }
+  transition: left .34s cubic-bezier(.3, .8, .3, 1), top .34s cubic-bezier(.3, .8, .3, 1), color .12s ease, opacity .2s ease, transform .2s ease; }
+.dial .di.press { transform: scale(.92); }
+.dial .side, .dial .hint, .dial .edithint { opacity: 0; transition: opacity .3s ease .15s; }
+.dial.open .side, .dial.open .hint, .dial.open .edithint { opacity: 1; }
 .dial .di .nm { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-shadow: 0 0 6px #000, 0 0 2px #000; }
-.dial .di.hot { background: var(--ink); color: var(--bg); }
-.dial .di.hot .nm { text-shadow: none; }
+.dial.edit .di { color: var(--dim); }                                  /* removing: names gray, a first tap turns one red */
+.dial.edit .di.armed { color: #FF5F57; }
+.dial .di.gone { opacity: 0 !important; transform: scale(.25) !important; }
+.dial .edithint { display: none; position: absolute; left: 16px; right: 16px; text-align: center; font: 11px/1.5 var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: .06em; pointer-events: none; }
+.dial.edit .edithint { display: block; }
 .dial .hint { position: absolute; left: 24px; right: 24px; text-align: center; font: 12px/1.5 var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: .05em; pointer-events: none; }
 .dial .side { position: absolute; left: 0; right: 0; text-align: center; font: 11px var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: .08em; pointer-events: none; }
 
@@ -106,6 +121,8 @@ body[data-screen="settings"] .tools { display: none; }
 .region.cat .h { font: 400 11px/18px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); padding: 0 6px; }
 .tile { position: absolute; border: 0; border-radius: 0; padding: 4px 6px; overflow: hidden; text-align: left; cursor: pointer; font: 400 12px/1.25 var(--f-body);
   display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 2px; }
+/* Each tile and dot works out its shades itself, so a gradient can give each its own color. */
+.tile, .treesvg circle { --r1: oklch(.44 calc(var(--c) * .8) var(--h)); --r2: oklch(.53 var(--c) var(--h)); --r3: oklch(.63 var(--c) var(--h)); --r4: oklch(.73 calc(var(--c) * .75) var(--h)); }
 .tile.a1 { background-color: var(--r1); color: var(--t1); } .tile.a2 { background-color: var(--r2); color: var(--t2); }
 .tile.a3 { background-color: var(--r3); color: var(--t3); } .tile.a4 { background-color: var(--r4); color: var(--t4); }
 .tile .n { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -177,7 +194,7 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .path { font: 12px/1.4 var(--f-mono); color: var(--dim); overflow-wrap: anywhere; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: var(--ink); color: var(--bg); font: 400 13px var(--f-body); padding: 8px 14px; border-radius: 4px; max-width: calc(100% - 32px); }
 .banner { margin: 16px 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
-@media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, .hub span { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .dial .di, .sheet, .hub, .hub i { transition: none !important; } }
 
 /* ---- Settings ---------------------------------------------------------------------------------------------------- */
 #settings { min-height: 0; overflow: auto; overscroll-behavior: contain; }

@@ -200,6 +200,11 @@ class MainActivity : Activity() {
         if (now != usageWas) { usageWas = now; apps.forgetUsage(); event("apps") } else event("resume")
     }
 
+    override fun onPause() {
+        super.onPause()
+        event("pause")                          // the page stops counting time for a file opened from the dial
+    }
+
     @Deprecated("Activity results for the Home role request")
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

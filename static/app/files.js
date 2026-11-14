@@ -79,6 +79,7 @@ function renderBrowser() {
     r.onkeydown = ev => { if (ev.key === "Enter") r.onclick(); };
     list.appendChild(r);
   }
+  if (typeof tint === "function") { const ics = list.querySelectorAll(".ic.folder"); ics.forEach((s, i) => tint(s, ics.length > 1 ? i / (ics.length - 1) : 0)); }
   if (!shown.length) list.innerHTML = `<p class="note">${FB.entries.length ? "Nothing here matches the search." : "This folder is empty."}</p>`;
   map.appendChild(wrap);
   wrap.querySelector("#fb-back").onclick = leaveBrowser;

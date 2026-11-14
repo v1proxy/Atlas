@@ -14,7 +14,7 @@ class Prefs(ctx: Context) {
     private val lock = Any()
 
     companion object {
-        val PAGE_KEYS = setOf("pins", "over", "order", "tone", "theme", "view", "metric", "cats")
+        val PAGE_KEYS = setOf("pins", "over", "order", "tone", "theme", "view", "metric", "cats", "use")
         const val MAX_PINS = 10
         private const val DAY = 86_400_000L
     }

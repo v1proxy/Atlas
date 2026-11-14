@@ -146,6 +146,8 @@ dt { color: var(--dim); } dd { margin: 0; font-variant-numeric: tabular-nums; }
 .lrow .num { font: 12px var(--f-mono); color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
 .lrow .sw { width: 12px; height: 12px; border-radius: 0; flex: none; }
 .lrow .sw.a1 { background: var(--r1); } .lrow .sw.a2 { background: var(--r2); } .lrow .sw.a3 { background: var(--r3); } .lrow .sw.a4 { background: var(--r4); }
+/* In the launcher a gradient gives each tile, dot, swatch and folder mark its own --h/--c: the shades follow per element. */
+.tile, .treesvg circle, .lrow .sw, .frow .ic.folder { --r1: oklch(.44 calc(var(--c) * .8) var(--h)); --r2: oklch(.53 var(--c) var(--h)); --r3: oklch(.63 var(--c) var(--h)); --r4: oklch(.73 calc(var(--c) * .75) var(--h)); }
 .lrow .sw.tree { background-image: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 5px); }
 .lrow.sel { background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--ink); }
 .lrow.hit .t { text-decoration: underline; }
@@ -264,7 +266,7 @@ body.launcher .press { box-shadow: inset 0 0 0 2px var(--ink) !important; }
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script src="/static/app/files.js?v=12"></script>
+<script src="/static/app/files.js?v=13"></script>
 <script>
 const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
 const $ = s => document.querySelector(s);
@@ -407,6 +409,7 @@ function tile(box, f, x, y, w, h, c, off) {
   const g = xs ? 0.5 : 1;
   Object.assign(t.style, { left: (x + g) + "px", top: (y + g) + "px", width: Math.max(0, w - 2 * g) + "px", height: Math.max(0, h - 2 * g) + "px" });
   t.setAttribute("aria-label", `${nm}, ${f.state}, ${f.category}`);
+  tint(t, (y + h / 2) / (parseFloat(box.style.height) || 1));
   if (w >= 60 && h >= 26) t.innerHTML = `<span class="n">${esc(nm)}</span>` + (h >= 42 ? `<span class="v">${esc(size)}</span>` : "");
   else t.classList.add("nolab");
   if (LAUNCHER) lpress(t, () => openTile(f, c), () => pick(f, c)); else t.onclick = () => pick(f, c);
@@ -434,6 +437,15 @@ function lpress(el, onTap, onLong) {
   el.addEventListener("click", e => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; return; } onTap(e); });
 }
 function launcherCall(m, ...a) { try { return window.AtlasLauncher[m](...a); } catch (e) { return null; } }
+// The launcher's color (Settings, Appearance). A gradient runs top to bottom through the maps: each tile, dot and mark
+// takes the color of where it sits (0 at the top, 1 at the bottom).
+let launcherTheme = null;
+function tintAt(f) {
+  const t = launcherTheme; if (!t || t.mode !== "gradient" || !t.b || !isFinite(t.b.h) || !isFinite(t.b.c)) return null;
+  f = Math.min(1, Math.max(0, f || 0)); const dh = ((t.b.h - t.a.h + 540) % 360) - 180;
+  return { h: (t.a.h + dh * f + 360) % 360, c: t.a.c + (t.b.c - t.a.c) * f };
+}
+function tint(el, f) { const x = tintAt(f); if (x) { el.style.setProperty("--h", x.h.toFixed(1)); el.style.setProperty("--c", x.c.toFixed(3)); } }
 const pinLabel = path => launcherCall("isPinned", path) ? "Remove from dial" : "Add to dial";
 function togglePin(item, btn, note) {
   const r = launcherCall("pin", JSON.stringify(item));
@@ -617,6 +629,7 @@ function renderTree() {
     const c = document.createElementNS(ns, "circle");
     c.setAttribute("r", leaf ? 5.5 : R);
     c.setAttribute("class", (leaf ? "a" + age(n.c || n.f) : "g") + (closed ? " closed" : ""));
+    tint(c, n.y / H0);
     const t = document.createElementNS(ns, "text"); t.setAttribute("x", 12); t.setAttribute("dy", "0.35em");
     const lab = n.label.length > max ? n.label.slice(0, max - 1) + "…" : n.label;
     const num = S.metric === "files" ? fmtN(n.files) + " files" : fmtGB(n.gb);
@@ -688,6 +701,7 @@ function renderList() {
     }
   };
   walk(root, 0);
+  const sws = box.querySelectorAll(".sw"); sws.forEach((s, i) => tint(s, sws.length > 1 ? i / (sws.length - 1) : 0));
   map.appendChild(box);
 }
 
@@ -875,11 +889,11 @@ document.addEventListener("click", e => { if (!tp.hidden && !tp.contains(e.targe
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeTones(); });
 applyTone("red");
 // In the launcher the color is the launcher's (Settings, Appearance: one color, or a gradient's first color).
-let launcherTheme = null;
 window.atlasTheme = t => {
   if (!t || !t.a || !isFinite(t.a.h) || !isFinite(t.a.c)) return;
   launcherTheme = t; const r = document.documentElement.style;
   r.setProperty("--h", String(+t.a.h)); r.setProperty("--c", String(+t.a.c));
+  render();
 };
 if (LAUNCHER) { try { const t = launcherCall("theme"); if (t) window.atlasTheme(JSON.parse(t)); } catch (e) {} }
 fetch("/settings", { cache: "no-store" }).then(r => r.json()).then(s => { if (!launcherTheme) applyTone(s.tone || "red"); if (s.view && s.view !== S.view) setView(s.view, false); }).catch(() => {});

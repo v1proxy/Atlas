@@ -79,7 +79,7 @@
     setTone(k) { prefs.tone = k; save(); try { fw().applyTone && fw().applyTone(k); } catch (e) {} try { hw().applyTone && hw().applyTone(k); } catch (e) {} },
     showFiles, home: goHome,
     openFile(path, dir) { showFiles(); const go = () => { try { if (fw().atlasOpen) { fw().atlasOpen(path, dir); return; } } catch (e) {} setTimeout(go, 200); }; go(); },
-    launch(label, icon) { $("#app-ic").src = icon; $("#app-nm").textContent = label; $("#app").hidden = false; },
+    launch(label, icon) { $("#app-ic").src = icon; $("#app-nm").textContent = label; $("#app").hidden = false; event({ type: "pause" }); },
     haptic(k) { try { navigator.vibrate && navigator.vibrate(k === "tick" ? 6 : 22); } catch (e) {} },
     theme(t) { try { fw().atlasTheme && fw().atlasTheme(t); } catch (e) {} },
     quit() { $("#quit").hidden = false; },

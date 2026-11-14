@@ -18,14 +18,20 @@ open(os.path.join(SITE, "index.html"), "w", encoding="utf-8").write(html)
 for f in os.listdir(FONTS):
     if f.endswith(".woff2"): shutil.copy(os.path.join(FONTS, f), os.path.join(SITE, "fonts"))
 shutil.copy(os.path.join(HERE, "mock.js"), SITE); shutil.copy(rules, os.path.join(SITE, "rules.json")); shutil.copy(mapj, os.path.join(SITE, "demo-map.json"))
-PINS = {"apps": [{"key": "io.homeassistant.companion.android/.Main|0", "label": "Home Assistant"}, {"key": "com.google.android.apps.messaging/.Main|0", "label": "Messages"},
-                 {"key": "com.android.chrome/.Main|0", "label": "Chrome"}, {"key": "com.google.android.GoogleCamera/.Main|0", "label": "Camera"},
-                 {"key": "com.google.android.apps.maps/.Main|0", "label": "Maps"}, {"key": "com.Slack/.Main|0", "label": "Slack"}],
-        "files": [{"path": "G:\\My Drive\\Harbor Library\\Concept report.pdf", "name": "Concept report.pdf", "dir": False, "kind": "pdf"},
-                  {"path": "G:\\My Drive\\Kitchen renovation", "name": "Kitchen renovation", "dir": True, "kind": ""},
-                  {"path": "G:\\My Drive\\Harbor Library\\Massing model.stl", "name": "Massing model.stl", "dir": False, "kind": "model"},
-                  {"path": "G:\\My Drive\\Harbor Library\\Facade study.jpg", "name": "Facade study.jpg", "dir": False, "kind": "image"}]}
-open(os.path.join(SITE, "prefs.js"), "w").write("window.MOCK_PREFS = " + json.dumps({"pins": PINS, "over": {}, "order": "apps-top", "tone": "red", "view": "treemap", "metric": "use"}) + ";")
+A_ = lambda pkg, label: {"key": pkg + "/.Main|0", "label": label}
+F_ = lambda path, d=False: {"path": path, "name": path.rsplit("\\", 1)[-1], "dir": d, "kind": ""}
+PINS = {"apps": [A_("io.homeassistant.companion.android", "Home Assistant"), A_("com.google.android.apps.messaging", "Messages"),
+                 A_("com.android.chrome", "Chrome"), A_("com.google.android.GoogleCamera", "Camera"), A_("com.google.android.apps.maps", "Maps"),
+                 A_("com.Slack", "Slack"), A_("com.whatsapp", "WhatsApp"), A_("com.instructure.candroid", "Canvas Student"),
+                 A_("com.united.mobile.android", "United Airlines"), A_("com.spotify.music", "Spotify")],
+        "files": [F_("G:\\My Drive\\Harbor Library\\Concept report.pdf"), F_("G:\\My Drive\\Kitchen renovation", True),
+                  F_("G:\\My Drive\\Harbor Library\\Massing model.stl"), F_("G:\\My Drive\\Harbor Library\\Facade study.jpg"),
+                  F_("G:\\My Drive\\Courses\\Syllabus.pdf"), F_("G:\\My Drive\\Courses\\Lecture 04 Lunar habitats and surface operations.pptx"),
+                  F_("G:\\My Drive\\Home\\Floor plan.dwg"), F_("G:\\My Drive\\Home\\Greenhouse wiring.pdf"),
+                  F_("G:\\My Drive\\Pitch deck v7.pdf"), F_("G:\\My Drive\\Taxes 2025", True)]}
+H_ = 3600e3
+USE = {"G:\\My Drive\\Kitchen renovation": [5 * H_, 0], "G:\\My Drive\\Courses\\Syllabus.pdf": [3 * H_, 0], "G:\\My Drive\\Harbor Library\\Concept report.pdf": [1 * H_, 0]}
+open(os.path.join(SITE, "prefs.js"), "w").write("window.MOCK_PREFS = " + json.dumps({"pins": PINS, "over": {}, "order": "apps-top", "tone": "red", "view": "treemap", "metric": "use", "use": USE}) + ";\nfor (const v of Object.values(MOCK_PREFS.use)) v[1] = Date.now();")
 
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 8811), functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE))
 srv.RequestHandlerClass.log_message = lambda *a: None
@@ -39,13 +45,35 @@ with sync_playwright() as p:
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     pg.goto("http://127.0.0.1:8811/index.html"); pg.wait_for_timeout(900)
     pg.screenshot(path=os.path.join(SHOTS, "1-home.png"))
+    # the dial: one tap opens it; the cross spins while the names swing out onto three rings, the most used nearest
     hub = pg.locator("#hub").bounding_box(); cx, cy = hub["x"] + hub["width"] / 2, hub["y"] + hub["height"] / 2
-    pg.mouse.move(cx, cy); pg.mouse.down(); pg.wait_for_timeout(500)
-    first = pg.locator("#dial .di").nth(0).bounding_box()
-    pg.mouse.move(first["x"] + first["width"] / 2, first["y"] + first["height"] / 2, steps=6); pg.wait_for_timeout(300)
-    pg.screenshot(path=os.path.join(SHOTS, "2-dial.png"))
-    pg.mouse.up(); pg.wait_for_timeout(200)
+    pg.mouse.move(cx, cy); pg.mouse.down(); pg.wait_for_timeout(80); pg.mouse.up()
+    pg.wait_for_timeout(240); pg.screenshot(path=os.path.join(SHOTS, "2a-dial-opening.png"))
+    spinning = pg.evaluate("document.querySelector('#hub i').getAnimations().length")
+    pg.wait_for_timeout(1300); pg.screenshot(path=os.path.join(SHOTS, "2b-dial.png"))
+    order = pg.evaluate("['Apps','Files'].map(s => [...document.querySelectorAll('#dial .di[data-side=' + s + ']')].map(b => b.textContent + ' ' + b.dataset.ring))")
+    boxes = pg.evaluate("[...document.querySelectorAll('#dial .di')].map(b => { const r = b.getBoundingClientRect(); return [b.textContent, r.left, r.top, r.right, r.bottom]; })")
+    overlaps = [(x[0], y[0]) for i, x in enumerate(boxes) for y in boxes[i + 1:] if min(x[3], y[3]) - max(x[1], y[1]) > 2 and min(x[4], y[4]) - max(x[2], y[2]) > 2]
+    fb = pg.evaluate("document.querySelector('#frame').getBoundingClientRect().bottom")
+    outside = [x[0] for x in boxes if x[1] < 0 or x[3] > 412 or x[2] < fb or x[4] > 915]
+    hubhit = [x[0] for x in boxes if max(x[1], cx - 45) < min(x[3], cx + 45) and max(x[2], cy - 45) < min(x[4], cy + 45)]
+    still = pg.evaluate("document.querySelectorAll('#dial .di').length && [...document.querySelectorAll('#dial .di')].some(b => b.getAnimations().length)")
+    pg.locator("#dial .di").nth(0).click(); pg.wait_for_timeout(200)
     log = pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').map(x => x[1].key)")
+    # holding opens it for removing: names gray, one tap red, a second tap takes it off
+    pg.mouse.move(cx, cy); pg.mouse.down(); pg.wait_for_timeout(700); pg.mouse.up(); pg.wait_for_timeout(1300)
+    edit = pg.evaluate("document.querySelector('#dial').classList.contains('edit') && getComputedStyle(document.querySelector('#dial .di')).color")
+    cross = pg.evaluate("getComputedStyle(document.querySelector('#hub i')).transform")
+    pg.screenshot(path=os.path.join(SHOTS, "2c-remove.png"))
+    tgt = pg.locator('#dial .di[data-side="Apps"]').nth(0); gone = tgt.text_content()
+    tgt.click(); pg.wait_for_timeout(150)
+    armed = pg.evaluate("getComputedStyle(document.querySelector('#dial .di.armed')).color")
+    pg.screenshot(path=os.path.join(SHOTS, "2d-armed.png"))
+    tgt.click(); pg.wait_for_timeout(700)
+    left = pg.evaluate("L.pins.apps.map(p => p.label)")
+    pg.screenshot(path=os.path.join(SHOTS, "2e-removed.png"))
+    pg.mouse.click(cx, cy); pg.wait_for_timeout(120); pg.screenshot(path=os.path.join(SHOTS, "2f-closing.png")); pg.wait_for_timeout(400)
+    closed = pg.evaluate("document.querySelector('#dial').hidden")
     pg.click("#box-apps"); pg.wait_for_timeout(400)
     pg.screenshot(path=os.path.join(SHOTS, "3-apps.png"))
     t = pg.locator('#map .tile[data-k="io.homeassistant.companion.android/.Main|0"]').bounding_box()
@@ -61,6 +89,10 @@ with sync_playwright() as p:
     states = pg.evaluate("Object.fromEntries(['Current','Superseded','Working'].map(s => [s, L.apps.filter(a => a.state === s).map(a => a.label + ' > ' + a.category)]))")
     b.close()
 srv.shutdown()
-print("dial released on:", log)
+print("cross spinning while opening:", spinning, "| animations still running after 1.5 s:", still)
+print("dial order (name ring):", json.dumps(order, indent=1))
+print("overlapping names:", overlaps or "none", "| outside the screen or under the frame:", outside or "none", "| over the circle:", hubhit or "none")
+print("tapped the first name, launched:", log)
+print("remove mode gray:", edit, "| cross:", cross, "| armed color:", armed, "| removed:", gone, "->", left, "| closed:", closed)
 print(json.dumps(states, indent=1))
 print("errors:", errors or "none")
