@@ -74,7 +74,7 @@ function renderBrowser() {
       <span class="nm"><span class="t">${esc(e.name)}</span>${chips(e.tags)}${e.cloud ? `<span class="cloud">cloud</span>` : ""}</span>
       <span class="num">${e.dir ? "" : fmtSize(e.size)}</span><span class="num fm">${fmtDate(e.mtime)}</span>`;
     r.querySelector("input").onclick = ev => { ev.stopPropagation(); ev.target.checked ? FB.checked.add(e.path) : FB.checked.delete(e.path); render(); };
-    if (typeof LAUNCHER !== "undefined" && LAUNCHER) lpress(r, () => e.dir ? browse(e.path) : focusEntry(e), () => fileMenu(e));
+    if (inLauncher()) lpress(r, () => e.dir ? browse(e.path) : focusEntry(e), () => e.dir || !native("openWith") ? fileMenu(e) : openInApp(e));
     else r.onclick = () => e.dir ? browse(e.path) : focusEntry(e);
     r.onkeydown = ev => { if (ev.key === "Enter") r.onclick(); };
     list.appendChild(r);
@@ -87,7 +87,30 @@ function renderBrowser() {
   wrap.querySelectorAll("[data-a]").forEach(b => b.onclick = () => act(b.dataset.a));
 }
 
-// The launcher's long press on a file or folder: Add to dial, open, and where it is.
+// ---- the launcher ---------------------------------------------------------------------------------------------
+// A tap on a file shows it here, in the viewer; holding it opens it in the phone's own app for its kind. The viewer's
+// top bar has Add to dial, Share, Open in app and the file's details. Folders: a tap opens, holding shows the details.
+const inLauncher = () => typeof LAUNCHER !== "undefined" && LAUNCHER;
+const native = m => inLauncher() && !!window.AtlasLauncher && typeof window.AtlasLauncher[m] === "function";
+function toast(msg, ms) {
+  let t = document.getElementById("atoast");
+  if (!t) { t = document.createElement("div"); t.id = "atoast"; t.className = "atoast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(t._h);
+  if (ms) t._h = setTimeout(() => { t.hidden = true; }, ms);
+}
+const fileItem = e => JSON.stringify({ path: e.path, name: e.name, kind: e.kind, size: e.size || 0 });
+function openInApp(e) { toast(`Opening ${e.name}…`); if (!launcherCall("openWith", fileItem(e))) toast("This version of the launcher can't open files in other apps yet.", 4000); }
+function shareFile(e) { toast(`Getting ${e.name} ready…`); if (!launcherCall("share", fileItem(e))) toast("This version of the launcher can't share yet.", 4000); }
+document.addEventListener("visibilitychange", () => { const t = document.getElementById("atoast"); if (document.hidden && t) t.hidden = true; });
+// The app's answers while it fetches a file from Atlas: {state: "progress" | "done" | "error", name, pct, msg}.
+window.atlasFile = s => {
+  if (s.state === "progress") toast(`Getting ${s.name}… ${s.pct}%`);
+  else if (s.state === "done") { const t = document.getElementById("atoast"); if (t) t.hidden = true; }
+  else toast(s.msg || "That didn't work.", 5000);
+};
+
+// The launcher's long press on a folder (and on a file, in a launcher too old to open it in an app): Add to dial, open,
+// and where it is.
 function fileMenu(e) {
   const p = $("#panel");
   p.innerHTML = `<div class="chip">${esc(e.dir ? "folder" : e.kind === "image_conv" ? "image" : e.kind)}</div><h2>${esc(e.name)}</h2>
@@ -147,11 +170,12 @@ function focusEntry(e) {
   preview(e);
 }
 
-const VIEWABLE = new Set(["image", "image_conv", "video", "audio", "pdf", "model", "text"]);
+const VIEWABLE = new Set(["image", "image_conv", "video", "audio", "pdf", "office", "model", "text"]);
 const narrow = () => window.innerWidth <= 900;
 
 function preview(e) {
-  const p = $("#panel"), can = VIEWABLE.has(e.kind), phone = narrow() && can;
+  const p = $("#panel"), can = VIEWABLE.has(e.kind), phone = narrow() && (can || inLauncher());
+  if (phone && inLauncher()) { viewer(e); return; }   // in the launcher the viewer is the file's page, its details included
   p.innerHTML = `<div class="chip">${esc(e.kind === "image_conv" ? "image" : e.kind)}</div><h2>${esc(e.name)}</h2>
     ${can ? `<div class="row"><button type="button" class="btn" id="pv-big">${phone ? "View" : "Full screen"}</button></div>` : ""}
     <div class="pv" id="pv"></div>
@@ -168,33 +192,69 @@ function preview(e) {
 
 function fill(pv, e, big) {
   const url = fileUrl(e.path), ext = extOf(e.name);
-  if (e.kind === "image") pv.innerHTML = e.size > 15e6 ? `<img alt="" src="/api/thumb?${new URLSearchParams({ path: e.path, s: "1600" })}">` : `<img alt="" src="${url}">`;
-  else if (e.kind === "image_conv") pv.innerHTML = `<img alt="" src="/api/thumb?${new URLSearchParams({ path: e.path, s: "1600" })}">`;
-  else if (e.kind === "video") pv.innerHTML = `<video controls preload="metadata" playsinline src="${url}"></video>`;
-  else if (e.kind === "audio") pv.innerHTML = `<audio controls preload="metadata" src="${url}"></audio>`;
+  if (e.kind === "image" || e.kind === "image_conv")
+    arrive(pv, e, `<img alt="" src="${e.kind === "image_conv" || e.size > 15e6 ? "/api/thumb?" + new URLSearchParams({ path: e.path, s: "1600" }) : url}">`, "img", "load");
+  else if (e.kind === "video") arrive(pv, e, `<video controls preload="metadata" playsinline src="${url}"></video>`, "video", "loadedmetadata");
+  else if (e.kind === "audio") arrive(pv, e, `<audio controls preload="metadata" src="${url}"></audio>`, "audio", "loadedmetadata");
   else if (e.kind === "pdf") pdfView(pv, url, big);
+  else if (e.kind === "office") officeView(pv, e, big);
   else if (e.kind === "model") modelView(pv, url, ext);
   else if (e.kind === "text") api("/api/text?" + new URLSearchParams({ path: e.path })).then(t => { pv.innerHTML = `<pre>${esc(t.text)}${t.truncated ? "\n…" : ""}</pre>`; }, x => { pv.innerHTML = `<p class="note err">${esc(x.message)}</p>`; });
-  else pv.innerHTML = `<p class="note">No preview for this type. Open it on the PC or download it.</p>`;
+  else pv.innerHTML = `<p class="note">No preview for this kind of file. ${native("openWith") ? "Open in app shows it." : "Open it on the PC or download it."}</p>`;
+}
+
+// While a file comes from the cloud say so, and if it can't come say that too, instead of an empty black screen.
+function arrive(pv, e, html, sel, ready) {
+  pv.innerHTML = `<p class="note pv-wait">Getting ${esc(e.name)}…</p>` + html;
+  const el = pv.querySelector(sel), w = pv.querySelector(".pv-wait");
+  if (sel === "img") el.hidden = true;
+  el.addEventListener(ready, () => { w.remove(); el.hidden = false; }, { once: true });
+  el.addEventListener("error", () => {
+    w.classList.add("err");
+    w.textContent = `${e.name} can't be shown here right now. ${native("openWith") ? "Try Open in app." : "Try again in a moment."}`;
+    if (inLauncher() && typeof post === "function") post("/api/clientlog", { msg: `viewer: ${e.kind} didn't load (${el.error ? el.error.code : "image"})`, where: e.path, ua: navigator.userAgent }).catch(() => {});
+  }, { once: true });
+}
+
+// Word, Excel and PowerPoint: Atlas makes a PDF of it once (LibreOffice), and the PDF shows like any other.
+async function officeView(el, e, big) {
+  el.innerHTML = `<p class="note">Making a preview of ${esc(e.name)}… the first time takes a few seconds.</p>`;
+  try {
+    const r = await fetch("/api/pdf?" + new URLSearchParams({ path: e.path }));
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || "the preview couldn't be made"); }
+    await pdfView(el, { data: new Uint8Array(await r.arrayBuffer()) }, big);
+  } catch (x) { el.innerHTML = `<p class="note err">No preview: ${esc(x.message)}.</p>`; }
 }
 
 function viewer(e) {
   document.querySelectorAll(".viewer").forEach(v => v.remove());
+  const L = inLauncher();
   const o = document.createElement("div"); o.className = "viewer"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); o.setAttribute("aria-label", e.name);
-  o.innerHTML = `<div class="vbar"><span>${esc(e.name)}</span><button type="button" class="btn" id="v-close">Close</button></div><div class="pv vbody"></div>`;
+  o.innerHTML = `<div class="vtop"><div class="vbar"><span>${esc(e.name)}</span><button type="button" class="btn" id="v-close">Close</button></div>
+    ${L ? `<div class="vacts"><button type="button" id="v-pin">${esc(pinLabel(e.path))}</button>${native("share") ? `<button type="button" id="v-share">Share</button>` : ""}${native("openWith") ? `<button type="button" id="v-open">Open in app</button>` : ""}<button type="button" id="v-info" aria-expanded="false">Details</button></div>
+    <div class="vinfo" hidden><dl><dt>Size</dt><dd>${e.size ? fmtSize(e.size) : "—"}</dd><dt>Changed</dt><dd>${fmtDate(e.mtime)}</dd></dl>${chips(e.tags)}<div class="path"><b>Path</b>${esc(e.path)}</div></div>` : ""}</div>
+    <div class="pv vbody"></div>`;
   document.body.appendChild(o); document.body.classList.add("noscroll");
   const keys = ev => { if (ev.key === "Escape") close(); };
   const close = () => { o.remove(); document.body.classList.remove("noscroll"); document.removeEventListener("keydown", keys); };
   document.addEventListener("keydown", keys); o.querySelector("#v-close").onclick = close; o.querySelector("#v-close").focus();
+  if (L) {
+    const pin = o.querySelector("#v-pin");
+    pin.onclick = () => { if (togglePin({ path: e.path, name: e.name, dir: false, kind: e.kind }, pin) === "full") toast("The dial holds 10 files. Remove one first.", 4000); };
+    if (o.querySelector("#v-share")) o.querySelector("#v-share").onclick = () => shareFile(e);
+    if (o.querySelector("#v-open")) o.querySelector("#v-open").onclick = () => openInApp(e);
+    const info = o.querySelector("#v-info"), box = o.querySelector(".vinfo");
+    info.onclick = () => { box.hidden = !box.hidden; info.setAttribute("aria-expanded", String(!box.hidden)); };
+  }
   fill(o.querySelector(".vbody"), e, true);
 }
 
-async function pdfView(el, url, big) {
+async function pdfView(el, src, big) {
   el.innerHTML = `<p class="note">Loading the PDF…</p>`;
   try {
     const lib = await import("/static/vendor/pdfjs/pdf.min.mjs");
     lib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdfjs/pdf.worker.min.mjs";
-    const doc = await lib.getDocument({ url, isEvalSupported: false, enableXfa: false }).promise;
+    const doc = await lib.getDocument({ ...(typeof src === "string" ? { url: src } : src), isEvalSupported: false, enableXfa: false }).promise;
     let n = 1; const cv = document.createElement("canvas"); const nav = document.createElement("div"); nav.className = "pv-nav";
     nav.innerHTML = `<button type="button" data-d="-1">Previous</button><span></span><button type="button" data-d="1">Next</button>`;
     el.innerHTML = ""; el.append(nav, cv);

@@ -9,7 +9,8 @@ Atlas as an Android phone's Home screen. A frame like Atlas on top, then the scr
 - **Tap a box** to open its Atlas map: Treemap, Tree or List. Apps are sorted the Atlas way, into Current, Superseded and Working and into your own categories; Files is Atlas itself, from your Atlas server.
 - **Tap the circle** for the dial. The cross spins while your pinned names come out of the circle onto three rings: apps toward the Apps box, files and folders toward the Files box, the most used first and nearest. Tap a name to open it. Tap the circle again and the names go back in while the cross spins the other way.
 - **Hold the circle** to take names off the dial: they come out gray, a first tap turns one red, a second tap takes it off.
-- **Everywhere, one tap opens and a long press offers more**, including Add to dial: on an app, a folder or a file.
+- **Everywhere, one tap opens and a long press offers more**, including Add to dial: on an app or a folder.
+- **Files: tap a file to see it here**, without leaving the launcher: photos, videos, music, PDFs, text, 3D models, and Word, Excel and PowerPoint files (your Atlas server turns them into PDFs). The bar on top has **Add to dial**, **Share**, **Open in app** and **Details**. **Hold a file** to open it straight in the phone's own app for it.
 - **Hold an app and drag it** onto a category to move it there, on the treemap, the tree or the list. Let go without moving to see its details instead.
 - **Tap the name on the left** to go back Home, from any screen, Files included. **Swiping right** goes back too, anywhere.
 - **The empty circle beside the search** opens Settings. **Hold it** to swap black and ivory: the background turns ivory, and the text, the lines and the circle turn black.
@@ -43,7 +44,7 @@ States follow use: **Working** is new (installed in the last two weeks) or not s
 
 ## How it works
 
-The app holds two pages. The home page (frame, boxes, dial, Apps map, Settings) is built into the app and never goes on the network: apps come from Android, and Atlas data comes through the app, signed in to Atlas the same way the Files page is. The Files page is Atlas from your server over Tailscale, which sees the launcher and switches to launcher mode: the Atlas name goes Home, there is no Devices button, one tap opens a folder and a long press offers the dial. Atlas's own security is unchanged: the launcher is one more signed-in device, listed in Devices as "Android launcher", and signs out with Lock.
+The app holds two pages. The home page (frame, boxes, dial, Apps map, Settings) is built into the app and never goes on the network: apps come from Android, and Atlas data comes through the app, signed in to Atlas the same way the Files page is. The Files page is Atlas from your server over Tailscale, which sees the launcher and switches to launcher mode: the Atlas name goes Home, there is no Devices button, one tap opens a folder or shows a file, and a long press offers the dial for a folder or opens a file in its app. To open or share a file, the app fetches it from Atlas with its own sign-in into its cache and hands it to the other app read only; the copy is deleted a day later. Atlas's own security is unchanged: the launcher is one more signed-in device, listed in Devices as "Android launcher", and signs out with Lock.
 
 | File | Role |
 |---|---|
@@ -57,7 +58,7 @@ The app holds two pages. The home page (frame, boxes, dial, Apps map, Settings) 
 ## Build and install
 
 1. Copy `launcher.example.json` to `launcher.json` and set `server` to your Atlas address (`https://<name>.<tailnet>.ts.net`). For a first start with no typing, put a pairing code in `pair` (on the server: `atlas_service.py --pair`). Optionally copy `rules.example.json` to `rules.json` and make it yours. Both stay out of git.
-2. On the PC, in the Atlas folder: `powershell -ExecutionPolicy Bypass -File launcher\build.ps1`. The first run downloads a JDK and Android's build tools into `%LOCALAPPDATA%\AtlasBuild` and makes the signing key.
+2. On the PC, in the Atlas folder: `powershell -ExecutionPolicy Bypass -File launcher\build.ps1`. The first run downloads a JDK and Android's build tools into `%LOCALAPPDATA%\AtlasBuild` and makes the signing key. The key is `%USERPROFILE%\.android\atlas-launcher.jks`, with its password in `atlas-launcher.keystore.properties` beside it: back both up, since every later version must be signed with the same key.
 3. Copy `launcher_dist\` to Atlas wherever your phone reaches it (the server in server mode: `/opt/atlas/app/launcher_dist/`).
 4. On the phone, with Tailscale on, open `https://<your Atlas>/launcher` in Chrome, download, install, open Atlas and accept **Make Atlas the Home screen**.
 
@@ -76,5 +77,6 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.1.0 (2026-11-15).** Files: a tap shows a file in the launcher, with Add to dial, Share, Open in app and Details on top; holding a file opens it in its app. Word, Excel and PowerPoint files get previews. Files arrive much faster from a server (see Atlas's own README), and the viewer says when a file is still coming or can't come instead of staying black.
 - **Since Baseline 1.** Swiping right goes back, in the launcher and in Files. Hold an app and drag it onto a category (treemap, tree or list); near the edges the list and the tree move by themselves. Categories: − beside each in the List view takes one out, Add a category at the bottom adds one. The Settings circle is as tall as the buttons, and its right edge is in line with the search field's. Two fingers move the maps as they pinch (launcher and Files), and a tree smaller than the screen can be moved anywhere on it instead of staying at the top.
 - **Baseline 1 (2026-11-14).** Names only, no icons. The dial: tap to open (the cross spins while the names come out onto three rings by use), tap to close (the same in reverse), hold to take names off. The name on the left goes Home; the Home buttons are gone. The Settings circle beside the search: tap for Settings, hold for black or ivory. A color wheel and two-color gradients that run through every map. A black band with 1px line, ring and cross. Quit.

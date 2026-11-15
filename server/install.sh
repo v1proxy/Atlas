@@ -16,6 +16,9 @@ if [ "$SRC" != "$APP" ]; then
      --exclude=pairs.json --exclude=local.key --exclude=state --exclude=cache .) | (cd "$APP" && tar xf -)
 fi
 command -v rclone >/dev/null || (curl -fsSL https://rclone.org/install.sh | bash)
+# Previews of Word, Excel and PowerPoint files: LibreOffice without its windows, and fonts that keep their layout
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends libreoffice-writer-nogui libreoffice-calc-nogui \
+  libreoffice-impress-nogui fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core >/dev/null
 python3 -m venv /opt/atlas/venv
 /opt/atlas/venv/bin/pip install -q --upgrade pip
 /opt/atlas/venv/bin/pip install -q -r "$APP/requirements-server.txt"
@@ -24,8 +27,11 @@ chmod 700 /opt/atlas
 for f in atlas.config.json rclone.conf; do [ -f "$APP/$f" ] && chmod 600 "$APP/$f"; done
 
 install -m 644 "$APP/server/atlas.service" /etc/systemd/system/atlas.service
+sed "s#/usr/bin/rclone #$(command -v rclone) #" "$APP/server/atlas-rclone.service" > /etc/systemd/system/atlas-rclone.service
+chmod 644 /etc/systemd/system/atlas-rclone.service
 systemctl daemon-reload
-systemctl enable atlas >/dev/null
+systemctl enable atlas-rclone atlas >/dev/null
+systemctl restart atlas-rclone
 systemctl restart atlas
 
 # The only way in: HTTPS inside the tailnet. Nothing listens on the public address.

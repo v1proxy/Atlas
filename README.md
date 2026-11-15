@@ -132,18 +132,19 @@ Atlas on the PC needs the PC on. For a phone that works any time, the same Atlas
 - Paths stay the PC's (`G:\My Drive\...`), so the map, tags and corrections are the same on both. With `state_folder` set to the same folder in your cloud drive on both, tags, corrections and colors are shared (the newer copy wins).
 - Deletes go to Google Drive's trash or OneDrive's recycle bin. Read-only folders stay read only, and `blocked` folders are never listed or opened.
 - The server has no folder of links and no "Open on PC"; everything else works the same.
+- Opening files is quick: one rclone stays running (`atlas-rclone.service`) instead of starting for every request, and a file up to 64 MB is kept on the server's disk once opened (2 GB in all, the least recently opened go first; `preview_cache_mb` in `cloud` changes that). Word, Excel and PowerPoint files are shown as PDFs made with LibreOffice, which the installer adds.
 - Nothing on the server is reachable from the internet: its firewall lets in only your tailnet, and Atlas answers through `tailscale serve` as on the PC.
 
 Setup:
 
 1. Create the server with `server/cloud-init.yaml` as its user data (cloud-init). On first boot it installs Tailscale and rclone, closes every port to the internet, and prints a Tailscale sign-in link on the server's console. Open the link and approve the server, then turn off key expiry for it in the Tailscale admin console.
 2. Copy this folder to the server, make `atlas.config.json` from `atlas.server.example.json` and an `rclone.conf` (on the PC: `rclone authorize "drive"` and `rclone authorize "onedrive"` sign you in to each service in your browser).
-3. On the server: `sudo bash server/install.sh`. It installs Atlas as a service and prints its address.
+3. On the server: `sudo bash server/install.sh`. It installs Atlas and its rclone as services, and LibreOffice for office previews, and prints its address.
 4. Pair the phone: `sudo -u atlas /opt/atlas/venv/bin/python /opt/atlas/app/atlas_service.py --pair` prints a link with a one-time code.
 
 ## As your Android Home screen (optional)
 
-The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. Baseline 1 (2026-11-14); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
+The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. In Files a tap shows a file and holding it opens it in its app. Version 1.1.0 (2026-11-15); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
 
 ## Security
 

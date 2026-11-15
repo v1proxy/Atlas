@@ -6,6 +6,7 @@
 # The finished app goes to launcher_dist\ beside Atlas, where Atlas serves it at /launcher to your signed-in phone.
 param([string]$Notes = "")
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"            # Windows PowerShell 5 downloads crawl while drawing a progress bar
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $atlas = Split-Path -Parent $here
 $proj = Join-Path $here "android"
@@ -15,7 +16,8 @@ New-Item -ItemType Directory -Force $tools | Out-Null
 function Get-Zip($url, $dest) {
   $zip = "$dest.zip"
   Write-Host "Downloading $url"
-  Invoke-WebRequest -UseBasicParsing $url -OutFile $zip
+  if (Get-Command curl.exe -ErrorAction SilentlyContinue) { & curl.exe -sS -L --retry 3 -o $zip $url; if ($LASTEXITCODE -ne 0) { throw "Couldn't download $url" } }
+  else { Invoke-WebRequest -UseBasicParsing $url -OutFile $zip }
   Expand-Archive -Force $zip $dest
   Remove-Item $zip
 }
@@ -50,12 +52,15 @@ Set-Content -Encoding ASCII (Join-Path $proj "local.properties") ("sdk.dir=" + (
 $keydir = Join-Path $env:USERPROFILE ".android"; New-Item -ItemType Directory -Force $keydir | Out-Null
 $store = Join-Path $keydir "atlas-launcher.jks"
 $props = Join-Path $proj "keystore.properties"
+$saved = Join-Path $keydir "atlas-launcher.keystore.properties"   # a copy beside the key, so a fresh copy of the repo still signs
+if ((Test-Path $store) -and -not (Test-Path $props) -and (Test-Path $saved)) { Copy-Item $saved $props }
 if (-not (Test-Path $store)) {
   $pw = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
   & keytool -genkeypair -keystore $store -storetype PKCS12 -alias atlas -keyalg RSA -keysize 4096 -validity 36500 `
     -storepass $pw -keypass $pw -dname "CN=Atlas launcher" | Out-Null
   Set-Content -Encoding ASCII $props @("storeFile=$($store -replace '\\', '/')", "storePassword=$pw", "keyAlias=atlas", "keyPassword=$pw")
-  Write-Host "Signing key made: $store (its password is in $props). Back both up."
+  Copy-Item -Force $props $saved
+  Write-Host "Signing key made: $store (its password is in $props and $saved). Back both up."
 }
 if (-not (Test-Path $props)) { throw "The signing key exists but $props is missing." }
 

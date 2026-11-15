@@ -12,6 +12,8 @@
  "cloud": {
   "rclone": "rclone",
   "config": "rclone.conf",
+  "_preview_cache_mb": "Room on the server's disk for copies of recently opened files (each up to 64 MB), so they open again at once.",
+  "preview_cache_mb": 2048,
   "_remotes": "[folder as the PC sees it, rclone remote]. Folders on the PC only can be backed up to Google Drive (Drive for desktop, 'Other computers') and listed here from that backup.",
   "remotes": [
    [

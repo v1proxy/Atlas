@@ -1,0 +1,32 @@
+# systemd unit: one rclone kept running for Atlas on a server. Starting rclone for every request costs 3 to 40 seconds
+# with Google Drive (it signs in and finds the file's folder again each time); this one keeps both, so files and folders
+# open in about a second. Atlas finds it at /run/atlas-rclone/rc.sock, which only the atlas user can reach (rfs.py).
+# Installed by server/install.sh, which also puts in the real path of rclone.
+[Unit]
+Description=Atlas: rclone kept running, for quick file access
+After=network-online.target
+Wants=network-online.target
+Before=atlas.service
+
+[Service]
+User=atlas
+Group=atlas
+WorkingDirectory=/opt/atlas/app
+RuntimeDirectory=atlas-rclone
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/rclone --config /opt/atlas/app/rclone.conf rcd --rc-serve --rc-no-auth --rc-addr unix:///run/atlas-rclone/rc.sock --fs-cache-expire-duration 2h --log-level NOTICE
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/atlas
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

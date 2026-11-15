@@ -6,6 +6,8 @@ import android.app.ActivityOptions
 import android.app.DownloadManager
 import android.app.PendingIntent
 import android.app.role.RoleManager
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -39,6 +41,7 @@ import java.io.File
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 /**
@@ -348,6 +351,100 @@ class MainActivity : Activity() {
             val r = prefs.togglePinFile(JSONObject(json))
             if (r != "full") event("pins")
             return r
+        }
+        /** Holding a file, or Open in app in the viewer: the file in the phone's own app for its kind. */
+        @JavascriptInterface fun openWith(json: String): Boolean { fetchFile(JSONObject(json), share = false); return true }
+        /** Share in the viewer: Android's share sheet with the file. */
+        @JavascriptInterface fun share(json: String): Boolean { fetchFile(JSONObject(json), share = true); return true }
+    }
+
+    // ---- a file from Atlas in another app -----------------------------------------------------------------------
+    // The file comes from Atlas with this launcher's sign-in into the app's cache, then goes to the other app through
+    // SharedFiles, read only. Atlas's page hears how it goes through window.atlasFile: progress, done or an error.
+    private val fetching = AtomicBoolean(false)
+
+    private fun fileState(state: String, name: String, pct: Int = 0, msg: String = "") {
+        val j = JSONObject().put("state", state).put("name", name).put("pct", pct).put("msg", msg)
+        runOnUiThread { filesJs("window.atlasFile&&atlasFile($j)") }
+    }
+
+    private fun safeName(n: String): String {
+        val s = n.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimStart('.').ifEmpty { "file" }
+        if (s.length <= 120) return s
+        val ext = s.substringAfterLast('.', "").take(10)
+        return s.take(110) + if (ext.isNotEmpty()) ".$ext" else ""
+    }
+
+    private fun fetchFile(item: JSONObject, share: Boolean) {
+        val path = item.optString("path")
+        if (path.isEmpty()) return
+        val name = safeName(item.optString("name").ifEmpty { path.substringAfterLast('\\') })
+        if (!fetching.compareAndSet(false, true)) { fileState("error", name, msg = "One file at a time: another one is on its way."); return }
+        pool.execute {
+            try {
+                val f = fetchToCache(path, name) { fileState("progress", name, it) }
+                runOnUiThread {
+                    fileState("done", name)
+                    val uri = SharedFiles.uri(f); val type = SharedFiles.mime(name)
+                    try {
+                        if (share) {
+                            val send = Intent(Intent.ACTION_SEND).setType(type).putExtra(Intent.EXTRA_STREAM, uri)
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            send.clipData = ClipData.newRawUri(name, uri)
+                            startActivity(Intent.createChooser(send, "Share $name"))
+                        } else {
+                            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                        }
+                    } catch (e: ActivityNotFoundException) {
+                        fileState("error", name, msg = "No app on this phone opens this kind of file.")
+                    }
+                }
+            } catch (e: Exception) {
+                fileState("error", name, msg = "Couldn't get $name: ${e.message ?: "Atlas can't be reached"}")
+            } finally {
+                fetching.set(false)
+            }
+        }
+    }
+
+    private fun fetchToCache(path: String, name: String, progress: (Int) -> Unit): File {
+        val root = SharedFiles.dir(this)
+        root.listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 86_400_000L) it.deleteRecursively() }
+        val key = MessageDigest.getInstance("SHA-1").digest(path.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+        val dir = File(root, key).apply { mkdirs() }
+        val out = File(dir, name)
+        val c = server.open("/api/file?path=" + URLEncoder.encode(path, "UTF-8") + "&dl=1")
+        c.readTimeout = 120_000
+        try {
+            val code = c.responseCode
+            if (code != 200) {
+                val err = c.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                throw java.io.IOException(runCatching { JSONObject(err).optString("error") }.getOrNull()?.ifEmpty { null } ?: "Atlas answered $code")
+            }
+            val total = c.contentLengthLong
+            val tmp = File(dir, "$name.part")
+            var got = 0L; var shown = -1; var last = 0L
+            c.inputStream.use { inp ->
+                tmp.outputStream().use { o ->
+                    val buf = ByteArray(1 shl 16)
+                    while (true) {
+                        val n = inp.read(buf); if (n < 0) break
+                        o.write(buf, 0, n); got += n
+                        val now = System.currentTimeMillis()
+                        if (total > 0 && now - last > 300) {
+                            val pct = (got * 100 / total).toInt()
+                            if (pct != shown) { shown = pct; last = now; progress(pct) }
+                        }
+                    }
+                }
+            }
+            if (total > 0 && got != total) { tmp.delete(); throw java.io.IOException("the file didn't arrive whole, try again") }
+            out.delete()
+            if (!tmp.renameTo(out)) throw java.io.IOException("no room on the phone")
+            dir.setLastModified(System.currentTimeMillis())
+            return out
+        } finally {
+            c.disconnect()
         }
     }
 

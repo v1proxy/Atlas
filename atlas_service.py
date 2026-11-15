@@ -249,10 +249,13 @@ class Handler(BaseHTTPRequestHandler):
                       {"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="atlas-launcher.apk"'}, csp=CSP_FILE)
         self.wfile.write(b)
 
-    def _file(self, rp, dl, size=None):
+    def _file(self, rp, dl, size=None, name=None, remote=False):
+        """A file with byte ranges (videos seek, PDFs load page by page). remote: rp is a cloud path, streamed from
+        rclone; otherwise rp is on this machine's disk. name: what the phone calls it, when rp is a copy."""
         size = os.path.getsize(rp) if size is None else size
-        ext = os.path.splitext(rp)[1].lower()
-        ct = "text/plain; charset=utf-8" if ext in TEXT_TYPES else (mimetypes.guess_type(rp)[0] or "application/octet-stream")
+        name = name or (cfg.W.basename(rp) if remote else os.path.basename(rp))
+        ext = os.path.splitext(name)[1].lower()
+        ct = "text/plain; charset=utf-8" if ext in TEXT_TYPES else (mimetypes.guess_type(name)[0] or "application/octet-stream")
         if ext in (".mov", ".m4v"): ct = "video/mp4"
         start, end, code = 0, size - 1, 200
         rng = self.headers.get("Range", "")
@@ -265,17 +268,14 @@ class Handler(BaseHTTPRequestHandler):
             end = min(end, size - 1)
             if start > end: return self._send(416, "", "text/plain", {"Content-Range": f"bytes */{size}"})
             code = 206
-        name = os.path.basename(rp).replace('"', "")
+        name = name.replace('"', "").replace("\\", "_")
         extra = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=60",
                  "Content-Disposition": f'{"attachment" if dl else "inline"}; filename="{name.encode("ascii", "replace").decode()}"'}
         if code == 206: extra["Content-Range"] = f"bytes {start}-{end}/{size}"
         self._headers(code, ct, end - start + 1, extra, csp=CSP_FILE)
-        proc = None
         try:
-            if cfg.CLOUD:
-                proc = rfs.stream(rp, start, end - start + 1); f = proc.stdout
-            else:
-                f = open(rp, "rb"); f.seek(start)
+            if remote: f = rfs.open_range(rp, start, end - start + 1)
+            else: f = open(rp, "rb"); f.seek(start)
             with f:
                 left = end - start + 1
                 while left > 0:
@@ -284,8 +284,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk); left -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
-        finally:
-            if proc and proc.poll() is None: proc.kill()
+        except OSError as e:
+            log("file stream: " + str(e)[:200])          # the headers are out: all that's left is to stop
 
     # ---- GET -------------------------------------------------------------------------------
     def do_GET(self):
@@ -342,9 +342,15 @@ class Handler(BaseHTTPRequestHandler):
                 if cfg.CLOUD:
                     st = rfs.stat(rp)
                     if not st or st["dir"]: return self._json(404, {"error": "not a file"})
-                    return self._file(rp, q.get("dl") == "1", st["size"])
+                    # Up to 64 MB: fetched once, then from this disk. Videos and music stream, so they start at once.
+                    local = None if fo.kind(rp) in ("video", "audio") else rfs.local_copy(rp, st)
+                    if local: return self._file(local, q.get("dl") == "1", name=cfg.W.basename(rp))
+                    return self._file(rp, q.get("dl") == "1", st["size"], remote=True)
                 if not os.path.isfile(rp): return self._json(404, {"error": "not a file"})
                 return self._file(rp, q.get("dl") == "1")
+            if p == "/api/pdf":                                     # a Word, Excel or PowerPoint file as a PDF, to preview
+                out = fo.office_pdf(q.get("path", ""))
+                return self._file(out, False, name=cfg.W.splitext(cfg.W.basename(q.get("path", "")))[0] + ".pdf")
             if p == "/api/thumb":
                 out = fo.thumb(q.get("path", ""), 1600 if q.get("s") == "1600" else 320)
                 b = open(out, "rb").read()
@@ -362,7 +368,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"error": str(e)})
         except FileNotFoundError:
             self._json(404, {"error": "not found"})
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
         except Exception as e:
+            if cfg.CLOUD and isinstance(e, (OSError, rfs.Missing)):
+                return self._json(502, {"error": "the cloud said: " + str(e)[:200]})
             log("GET error: " + traceback.format_exc(limit=2)); self._json(500, {"error": "something went wrong"})
 
     # ---- POST ------------------------------------------------------------------------------
@@ -419,6 +429,14 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump(ovr, open(OVR, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
                 fo.log(who, "place", {"folder": f["source"], "state": st, "category": cat, "reset": bool(body.get("reset"))}); push_state()
                 threading.Thread(target=cycle, kwargs={"reindex": False}, daemon=True).start()
+                return self._json(200, {"ok": True})
+            if p == "/api/clientlog":                              # a page's own errors, so they can be found later
+                line = json.dumps({k: str(body.get(k, ""))[:600] for k in ("msg", "where", "stack", "ua")}, ensure_ascii=False)
+                clog = os.path.join(HERE, "client.log")
+                try:
+                    if os.path.exists(clog) and os.path.getsize(clog) > 512_000: os.replace(clog, clog + ".1")
+                except OSError: pass
+                with open(clog, "a", encoding="utf-8") as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}  {who}  {line}\n")
                 return self._json(200, {"ok": True})
             if p == "/rescan":
                 if not STATUS["running"]: threading.Thread(target=cycle, daemon=True).start()

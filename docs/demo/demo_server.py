@@ -187,11 +187,13 @@ FILES = {  # path -> (bytes, tags)
     HL + r"\Massing model.stl": (massing_stl(), []),
     HL + r"\Program areas.csv": ("Space,Area m2\nReading room,640\nChildren's library,220\nStacks,410\nCafe,120\nOffices,180\n".encode(), []),
     HL + r"\Notes.txt": ("Harbor Library\n\nClient meeting, 4 Nov\n- Keep the reading room facing the water\n- Daylight study before the next review\n- Cost plan due 20 Nov\n".encode(), ["Urgent"]),
+    HL + r"\Cost plan.docx": (b"PK\x03\x04 an invented Word file", []),         # its preview is the report's PDF
+    HL + r"\Section model.blend": (b"BLENDER-v400 an invented Blender file", []),  # no preview: open it in its app
 }
 for i in range(1, 9): FILES[HL + rf"\Site photos\IMG_04{i:02d}.jpg"] = (jpg(site(i)), [])
 DIRS = {HL: ["01 Brief", "02 Concept", "03 Design development", "Site photos"],
         HL + r"\Site photos": [], HL + r"\01 Brief": [], HL + r"\02 Concept": [], HL + r"\03 Design development": []}
-KIND = {"jpg": "image", "png": "image", "pdf": "pdf", "stl": "model", "csv": "text", "txt": "text", "mp4": "video"}
+KIND = {"jpg": "image", "png": "image", "pdf": "pdf", "stl": "model", "csv": "text", "txt": "text", "mp4": "video", "docx": "office", "blend": "cad"}
 TAGS = {"vocab": {"Client review": "teal", "Final": "green", "Urgent": "red"}}
 
 def listing(path):
@@ -248,6 +250,11 @@ class Demo(BaseHTTPRequestHandler):
             return self.send(200, {"results": [{"name": k.rsplit("\\", 1)[1], "path": k, "size": len(v[0])} for k, v in FILES.items() if s in k.lower()][:20]})
         if p == "/api/text":
             b = FILES.get(q.get("path"), (b"",))[0]; return self.send(200, {"text": b.decode("utf-8", "replace"), "truncated": False})
+        if p == "/api/pdf":
+            path = q.get("path", "")
+            if path not in FILES: return self.send(404, {"error": "not found"})
+            if not path.lower().endswith(".docx"): return self.send(403, {"error": "there is no preview for this kind of file"})
+            return self.send(200, FILES[HL + r"\Harbor Library - concept report.pdf"][0], "application/pdf")
         if p in ("/api/file", "/api/thumb"):
             path = q.get("path", ""); b = FILES.get(path, (None,))[0]
             if b is None: return self.send(404, {"error": "not found"})

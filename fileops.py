@@ -1,7 +1,7 @@
 # fileops.py: what Atlas can do with files. Every path goes through security.guard first.
 # Delete always goes to a bin: the Recycle Bin on the PC (send2trash), Drive's trash or OneDrive's recycle bin on the
 # server. Nothing here deletes permanently. On the server (mode "cloud") the same actions run through rclone (rfs.py).
-import io, os, json, time, shutil, hashlib, sqlite3, threading
+import io, os, json, time, shutil, hashlib, pathlib, sqlite3, subprocess, tempfile, threading
 import config as cfg
 from security import guard, readonly, check_name, Denied, HERE, BLOCKED
 if cfg.CLOUD: import rfs
@@ -11,7 +11,9 @@ W = cfg.W
 TAGS = os.path.join(cfg.STATE, "tags.json")
 LOG = os.path.join(HERE, "actions.log")
 CACHE = os.path.join(HERE, "cache", "thumbs")
+PDFS = os.path.join(HERE, "cache", "pdf")                 # Word, Excel and PowerPoint files turned into PDFs, for previews
 _lock = threading.Lock()
+_convert = threading.Lock()                             # one LibreOffice at a time
 
 KINDS = {
     "image": "jpg jpeg png gif webp bmp svg avif ico",
@@ -179,11 +181,73 @@ def thumb(path, size=320):
             import pillow_heif; pillow_heif.register_heif_opener()      # iPhone photos (HEIC)
         except ImportError:
             pass
-        with Image.open(io.BytesIO(_cloud(rfs.read)(rp)) if cfg.CLOUD else rp) as im:
+        src = rp
+        if cfg.CLOUD: src = _cloud(rfs.local_copy)(rp, s) or io.BytesIO(_cloud(rfs.read)(rp))
+        with Image.open(src) as im:
             im = ImageOps.exif_transpose(im); im.thumbnail((size, size))
             if im.mode not in ("RGB", "L"): im = im.convert("RGB")
             im.save(out, "JPEG", quality=82)
     return out
+
+
+def soffice():
+    return cfg.C.get("soffice") or shutil.which("soffice") or shutil.which("libreoffice")
+
+
+def office_pdf(path):
+    """A Word, Excel or PowerPoint file (or an OpenDocument one) as a PDF, made once with LibreOffice and kept, so a
+    phone can show it like any PDF. The PDF is a preview: the file itself is never changed."""
+    rp = guard(path)
+    if kind(rp) != "office" or W.splitext(rp)[1].lower() in (".pages", ".numbers", ".key"):
+        raise Denied("there is no preview for this kind of file")
+    lo = soffice()
+    if not lo: raise Denied("previews of office files need LibreOffice where Atlas runs")
+    if cfg.CLOUD:
+        s = _cloud(rfs.stat)(rp)
+        if not s or s["dir"]: raise Denied("not a file")
+        src = _cloud(rfs.local_copy)(rp, s)
+        if not src: raise Denied("too large to preview")
+        fsize, fmtime = s["size"], s["mtime"]
+    else:
+        st = os.stat(rp); src, fsize, fmtime = rp, st.st_size, st.st_mtime
+        if fsize > 64 * 2 ** 20: raise Denied("too large to preview")
+    os.makedirs(PDFS, exist_ok=True)
+    out = os.path.join(PDFS, hashlib.sha1(f"{W.normcase(rp)}|{fmtime}|{fsize}".encode()).hexdigest() + ".pdf")
+    if os.path.exists(out):
+        try: os.utime(out)
+        except OSError: pass
+        return out
+    with _convert:
+        if os.path.exists(out): return out
+        tmp = tempfile.mkdtemp(dir=PDFS)
+        try:
+            inp = os.path.join(tmp, "file" + W.splitext(rp)[1].lower())    # LibreOffice reads the kind from the extension
+            shutil.copyfile(src, inp)
+            profile = os.path.join(HERE, "cache", "libreoffice")
+            try:
+                subprocess.run([lo, "--headless", "--norestore", "--nologo", "--nodefault", "--nolockcheck",
+                                "-env:UserInstallation=" + pathlib.Path(profile).as_uri(),
+                                "--convert-to", "pdf", "--outdir", tmp, inp],
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
+            except subprocess.TimeoutExpired:
+                raise Denied("this file took too long to turn into a preview")
+            made = os.path.join(tmp, "file.pdf")
+            if not os.path.exists(made) or not os.path.getsize(made): raise Denied("this file can't be turned into a preview")
+            os.replace(made, out)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    _trim_pdfs()
+    return out
+
+
+def _trim_pdfs(keep=512 * 2 ** 20):
+    try: fs = sorted((e.stat().st_mtime, e.stat().st_size, e.path) for e in os.scandir(PDFS) if e.is_file())
+    except OSError: return
+    total = sum(f[1] for f in fs)
+    for _, size, p in fs:
+        if total <= keep: break
+        try: os.remove(p); total -= size
+        except OSError: pass
 
 
 def find(q, db_path, limit=60):

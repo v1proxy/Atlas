@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/app/files.css?v=12">
+<link rel="stylesheet" href="/static/app/files.css?v=13">
 <style>
 /* IBM Plex, served from this PC (SIL Open Font License, static/vendor/fonts/OFL.txt): nothing is fetched from the internet. */
 @font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-display: swap; src: url(/static/vendor/fonts/IBMPlexSans-Light.woff2) format("woff2"); }
@@ -269,7 +269,7 @@ body.launcher.ivory aside { box-shadow: 0 -10px 30px rgba(0, 0, 0, .18); }
 </div>
 <div class="tip" id="tip" hidden></div>
 
-<script src="/static/app/files.js?v=13"></script>
+<script src="/static/app/files.js?v=14"></script>
 <script>
 const S = { data: null, metric: "gb", zoom: [], sel: null, q: "", gen: null, view: "treemap", open: new Set(["Atlas", "Current", "Superseded", "Working"]) };
 const $ = s => document.querySelector(s);
@@ -440,6 +440,13 @@ function lpress(el, onTap, onLong) {
   el.addEventListener("click", e => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; return; } onTap(e); });
 }
 function launcherCall(m, ...a) { try { return window.AtlasLauncher[m](...a); } catch (e) { return null; } }
+// Inside the launcher nobody sees the page's console: its errors go to the server (client.log), to be found later.
+if (LAUNCHER) {
+  let sent = 0;
+  const report = (msg, where, stack) => { if (sent++ < 20) post("/api/clientlog", { msg: String(msg), where, stack: String(stack || ""), ua: navigator.userAgent }).catch(() => {}); };
+  window.addEventListener("error", e => report(e.message, `${e.filename}:${e.lineno}:${e.colno}`, e.error && e.error.stack));
+  window.addEventListener("unhandledrejection", e => report(e.reason && e.reason.message || e.reason, "promise", e.reason && e.reason.stack));
+}
 // The launcher's color (Settings, Appearance). A gradient runs top to bottom through the maps: each tile, dot and mark
 // takes the color of where it sits (0 at the top, 1 at the bottom).
 let launcherTheme = null;
