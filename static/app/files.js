@@ -218,7 +218,7 @@ function arrive(pv, e, html, sel, ready) {
 
 // Word, Excel and PowerPoint: Atlas makes a PDF of it once (LibreOffice), and the PDF shows like any other.
 async function officeView(el, e, big) {
-  el.innerHTML = `<p class="note">Making a preview of ${esc(e.name)}… the first time takes a few seconds.</p>`;
+  el.innerHTML = `<p class="note">Making a preview of ${esc(e.name)}… The first time takes a few seconds, up to half a minute for a big presentation.</p>`;
   try {
     const r = await fetch("/api/pdf?" + new URLSearchParams({ path: e.path }));
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || "the preview couldn't be made"); }
