@@ -68,7 +68,11 @@
         }
         return { status: 404, body: "{}" };
       }
-      case "update.check": return { available: false };
+      case "update.check": return window.MOCK_UPDATE || { available: false };
+      case "update.install": window.MOCK_INSTALLS = (window.MOCK_INSTALLS || 0) + 1; return true;
+      case "web.suggest": return ["weather today", "weather houston", "weather radar", "weather tomorrow", "weather this weekend", "weather 10 day"]
+        .filter(x => x.startsWith(args.q.toLowerCase().slice(0, 3)));
+      case "web.search": (window.MOCK_WEB = window.MOCK_WEB || []).push(args.q); return true;
       default: return true;
     }
   }

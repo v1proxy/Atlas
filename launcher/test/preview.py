@@ -102,6 +102,29 @@ with sync_playwright() as p:
     pg.mouse.move(tb["x"] + 17, tb["y"] + 17); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up(); pg.wait_for_timeout(900)
     black = pg.evaluate("[document.body.classList.contains('ivory'), getComputedStyle(document.body).backgroundColor]")
     states = pg.evaluate("Object.fromEntries(['Current','Superseded','Working'].map(s => [s, L.apps.filter(a => a.state === s).map(a => a.label + ' > ' + a.category)]))")
+    # Settings, Version: one button. No update: it stays and says so. An update: the same button says Update.
+    pg.click("#tonebtn"); pg.wait_for_timeout(400)
+    pg.click("#o-upd"); pg.wait_for_timeout(300)
+    upd_none = [pg.inner_text("#o-upd"), pg.inner_text("#o-updn")]
+    pg.evaluate("window.MOCK_UPDATE = {available: true, version: '1.1.1', notes: 'One button for updates.'}")
+    pg.click("#o-upd"); pg.wait_for_timeout(300)
+    upd_ready = [pg.inner_text("#o-upd"), pg.inner_text("#o-updn"), pg.locator("#o-inst").count()]
+    pg.locator("#o-upd").scroll_into_view_if_needed(); pg.screenshot(path=os.path.join(SHOTS, "settings-update.png"))
+    pg.click("#o-upd"); pg.wait_for_timeout(300)
+    upd_go = [pg.evaluate("window.MOCK_INSTALLS || 0"), pg.inner_text("#o-updn"), pg.locator("#o-upd").is_disabled()]
+    # Google from the search bar: a row under the results, Google's suggestions, Enter when no app matches.
+    pg.click("#title"); pg.wait_for_timeout(400)
+    pg.click("#q"); pg.keyboard.type("weather", delay=30); pg.wait_for_timeout(900)
+    rows = pg.locator("#web [data-g]").all_inner_texts()
+    pg.screenshot(path=os.path.join(SHOTS, "search-google.png"))
+    pg.locator("#web [data-g]").nth(1).click(); pg.wait_for_timeout(150)
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("lunar habitat", delay=20); pg.wait_for_timeout(300)
+    pg.keyboard.press("Enter"); pg.wait_for_timeout(150)
+    web = pg.evaluate("window.MOCK_WEB || []")
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("chrome", delay=20); pg.wait_for_timeout(300)
+    before = pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').length")
+    pg.keyboard.press("Enter"); pg.wait_for_timeout(200)
+    enter_app = [pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').length") - before, len(pg.evaluate("window.MOCK_WEB || []"))]
     b.close()
 srv.shutdown()
 print("cross spinning while opening:", spinning, "| animations still running after 1.5 s:", still)
@@ -112,4 +135,6 @@ print("remove mode gray:", edit, "| cross:", cross, "| armed color:", armed, "| 
 print("closing: cross at", round(back, 1), "deg after 260 ms (negative = counterclockwise) | closed, cross back to +:", closed)
 print("ivory after holding Settings:", ivory, "| title went home:", home_again, "| held again:", black)
 print(json.dumps(states, indent=1))
+print("update, none:", upd_none, "| ready:", upd_ready, "| tapped Update:", upd_go)
+print("google rows:", rows, "| searched:", web, "| Enter with an app match: launched", enter_app[0], "web searches", enter_app[1])
 print("errors:", errors or "none")

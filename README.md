@@ -144,7 +144,7 @@ Setup:
 
 ## As your Android Home screen (optional)
 
-The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. In Files a tap shows a file and holding it opens it in its app. Version 1.1.0 (2026-11-15); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
+The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. In Files a tap shows a file and holding it opens it in its app, and the search bar also searches Google. Version 1.2.0 (2026-11-15); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
 
 ## Security
 

@@ -294,6 +294,8 @@ class MainActivity : Activity() {
         "info" -> JSONObject().put("version", BuildConfig.VERSION_NAME).put("code", BuildConfig.VERSION_CODE)
             .put("server", server.address).put("isDefault", isDefaultHome()).put("usage", apps.hasUsageAccess()).put("signedIn", server.signedIn())
         "pair" -> { pair(a.getString("code"), a.optString("server")); true }
+        "web.search" -> { webSearch(a.getString("q")); true }
+        "web.suggest" -> suggest(a.getString("q"))
         "update.check" -> checkUpdate()
         "update.install" -> { installUpdate(); true }
         "ready" -> {
@@ -356,6 +358,34 @@ class MainActivity : Activity() {
         @JavascriptInterface fun openWith(json: String): Boolean { fetchFile(JSONObject(json), share = false); return true }
         /** Share in the viewer: Android's share sheet with the file. */
         @JavascriptInterface fun share(json: String): Boolean { fetchFile(JSONObject(json), share = true); return true }
+    }
+
+    // ---- Google from the search bar ------------------------------------------------------------------------------
+    /** Google's results for q, in the browser (Chrome, or whichever app the phone uses for web pages). */
+    private fun webSearch(q: String) {
+        val uri = Uri.parse("https://www.google.com/search?q=" + URLEncoder.encode(q.trim(), "UTF-8"))
+        runOnUiThread {
+            try { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
+            catch (e: ActivityNotFoundException) { Toast.makeText(this, "No app on this phone opens web pages.", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    /** Google's suggestions for what is typed so far, as its own search box shows them: up to five. */
+    private fun suggest(q: String): JSONArray {
+        val out = JSONArray()
+        if (q.isBlank()) return out
+        val url = java.net.URL("https://suggestqueries.google.com/complete/search?client=firefox&oe=utf-8&hl=" +
+            URLEncoder.encode(java.util.Locale.getDefault().language, "UTF-8") + "&q=" + URLEncoder.encode(q, "UTF-8"))
+        val c = url.openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 3000; c.readTimeout = 3000
+        try {
+            if (c.responseCode != 200) return out
+            val list = JSONArray(c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optJSONArray(1) ?: return out
+            for (i in 0 until minOf(5, list.length())) out.put(list.optString(i))
+        } finally {
+            c.disconnect()
+        }
+        return out
     }
 
     // ---- a file from Atlas in another app -----------------------------------------------------------------------

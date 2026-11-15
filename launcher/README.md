@@ -13,6 +13,7 @@ Atlas as an Android phone's Home screen. A frame like Atlas on top, then the scr
 - **Files: tap a file to see it here**, without leaving the launcher: photos, videos, music, PDFs, text, 3D models, and Word, Excel and PowerPoint files (your Atlas server turns them into PDFs). The bar on top has **Add to dial**, **Share**, **Open in app** and **Details**. **Hold a file** to open it straight in the phone's own app for it.
 - **Hold an app and drag it** onto a category to move it there, on the treemap, the tree or the list. Let go without moving to see its details instead.
 - **Tap the name on the left** to go back Home, from any screen, Files included. **Swiping right** goes back too, anywhere.
+- **The search** finds apps and files, and searches Google: under the results, **Search Google** and Google's own suggestions as you type (what you type goes to Google for them). **Enter** opens the first matching app, or searches Google when no app matches. Google's results open in the browser.
 - **The empty circle beside the search** opens Settings. **Hold it** to swap black and ivory: the background turns ivory, and the text, the lines and the circle turn black.
 - Names only: no app icons anywhere, on the maps or on the dial.
 
@@ -77,6 +78,8 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.2.0 (2026-11-15).** Google in the search bar: a Search Google row under the results, Google's suggestions as you type, and Enter searches Google when no app matches. Results open in the browser.
+- **1.1.1 (2026-11-15).** Settings: Check for an update turns into Update when there is one, instead of a second, black button; when there isn't, it says you have the latest version.
 - **1.1.0 (2026-11-15).** Files: a tap shows a file in the launcher, with Add to dial, Share, Open in app and Details on top; holding a file opens it in its app. Word, Excel and PowerPoint files get previews. Files arrive much faster from a server (see Atlas's own README), and the viewer says when a file is still coming or can't come instead of staying black.
 - **Since Baseline 1.** Swiping right goes back, in the launcher and in Files. Hold an app and drag it onto a category (treemap, tree or list); near the edges the list and the tree move by themselves. Categories: − beside each in the List view takes one out, Add a category at the bottom adds one. The Settings circle is as tall as the buttons, and its right edge is in line with the search field's. Two fingers move the maps as they pinch (launcher and Files), and a tree smaller than the screen can be moved anywhere on it instead of staying at the top.
 - **Baseline 1 (2026-11-14).** Names only, no icons. The dial: tap to open (the cross spins while the names come out onto three rings by use), tap to close (the same in reverse), hold to take names off. The name on the left goes Home; the Home buttons are gone. The Settings circle beside the search: tap for Settings, hold for black or ivory. A color wheel and two-color gradients that run through every map. A black band with 1px line, ring and cross. Quit.

@@ -332,7 +332,7 @@ function show(screen) {
   L.screen = screen; document.body.dataset.screen = screen;
   $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
   $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
-  $("#q").placeholder = screen === "apps" ? "Find an app" : "Find an app, folder or file";
+  $("#q").placeholder = screen === "apps" ? "Find an app, or search Google" : "Find an app or file, or search Google";
   closeSheet(); hideResults(); closeDial();
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
   else if (screen === "settings") renderSettings();
@@ -653,13 +653,20 @@ async function renderSettings() {
   if ($("#o-home")) $("#o-home").onclick = () => fire("home.request");
   if ($("#o-usage")) $("#o-usage").onclick = () => fire("usage.request");
   if ($("#o-pair")) $("#o-pair").onclick = () => { const c = $("#o-code").value.trim(); if (c) { fire("pair", { code: c }); toast("Signing in to Atlas"); } };
+  // One button: "Check for an update" becomes "Update" when Atlas has a newer version; otherwise it stays and says so.
+  let ready = false;
   $("#o-upd").onclick = async () => {
-    const n = $("#o-updn"); n.textContent = "Asking Atlas";
+    const b = $("#o-upd"), n = $("#o-updn");
+    if (ready) {
+      b.disabled = true; setTimeout(() => { b.disabled = false; }, 10000);
+      n.textContent = "Downloading. Android will ask you to confirm."; fire("update.install"); return;
+    }
+    n.textContent = "Asking Atlas…";
     try {
       const u = await native("update.check");
-      if (!u.available) { n.textContent = "This is the newest version."; return; }
-      n.innerHTML = `Version ${esc(u.version)} is ready${u.notes ? ": " + esc(u.notes) : "."} <button type="button" class="btn primary" id="o-inst">Update</button>`;
-      $("#o-inst").onclick = () => { n.textContent = "Downloading. Android will ask you to confirm."; fire("update.install"); };
+      if (!u.available) { n.textContent = "No update. You have the latest version."; return; }
+      ready = true; b.textContent = "Update";
+      n.textContent = `Version ${u.version} is ready${u.notes ? ": " + u.notes : "."}`;
     } catch (e) { n.textContent = "Couldn't check: " + e.message; }
   };
   let armed = 0;
@@ -735,6 +742,7 @@ function onSearch() {
   if (L.screen === "apps") { if (L.view === "treemap") applySearch(); else renderApps(); return; }
   const q = L.q.trim().toLowerCase();
   clearTimeout(findT);
+  suggest(L.q);
   if (!q) { hideResults(); return; }
   const apps = L.apps.filter(a => matchApp(a, q)).sort(byUse).slice(0, 12);
   showResults(apps, q.length >= 3 ? null : []);
@@ -752,18 +760,46 @@ function showResults(apps, files, err) {
   R.innerHTML = `<h3>Apps</h3>` + (apps.length ? apps.map((a, i) => `<button type="button" class="r" data-a="${i}"><span class="t">${esc(a.label)}<small>${esc(a.category)} · ${esc(a.state)}</small></span><span class="num"></span></button>`).join("") : `<p class="none">No app matches.</p>`)
     + `<h3>Files</h3>` + (files === null ? `<p class="none">Searching Atlas</p>` : err ? `<p class="none">${esc(err === "not signed in" ? "Sign in to Atlas to search files." : "Can't reach Atlas right now.")}</p>`
       : files.length ? files.slice(0, 40).map((f, i) => `<button type="button" class="r" data-f="${i}"><span class="t">${esc(f.name)}<small>${esc(dirName(f.path))}</small></span><span class="num">${fmtSize(f.size || 0)}</span></button>`).join("")
-      : `<p class="none">${L.q.trim().length < 3 ? "Type three letters to search file names." : "No file matches."}</p>`);
+      : `<p class="none">${L.q.trim().length < 3 ? "Type three letters to search file names." : "No file matches."}</p>`)
+    + `<div id="web"></div>`;
   R.querySelectorAll("[data-a]").forEach(b => { const a = apps[+b.dataset.a]; pressable(b, () => { launch(a, b); }, () => appSheet(a)); });
   R.querySelectorAll("[data-f]").forEach(b => { const f = files[+b.dataset.f]; pressable(b, () => openFile(f.path, false), () => fileSheet(f)); });
+  paintWeb();
 }
 function hideResults() { const R = $("#results"); R.hidden = true; R.innerHTML = ""; }
 function clearSearch() { $("#q").value = ""; L.q = ""; hideResults(); if (L.screen === "apps") { if (L.view === "treemap") applySearch(); else renderApps(); } }
+
+// Google, from the same bar: under the results a row searches Google for what you typed, with Google's own
+// suggestions below it as you type (what you type goes to Google for them); Enter searches Google when no app
+// matches. The results open in the browser.
+let sugT = 0, sugSeq = 0, sugs = [];
+function webSearch(q) { q = (q || "").trim(); if (!q) return; $("#q").blur(); fire("web.search", { q }); }
+function suggest(text) {
+  clearTimeout(sugT); const my = ++sugSeq, q = (text || "").trim();
+  if (q.length < 2) { sugs = []; return; }
+  sugT = setTimeout(async () => {
+    try {
+      const r = await native("web.suggest", { q });
+      if (my !== sugSeq) return;
+      sugs = (Array.isArray(r) ? r : []).filter(x => x && x.toLowerCase() !== q.toLowerCase()).slice(0, 5); paintWeb();
+    } catch (e) { /* no suggestions: the search row is still there */ }
+  }, 200);
+}
+function paintWeb() {
+  const box = $("#web"), q = L.q.trim(); if (!box) return;
+  if (!q) { box.innerHTML = ""; return; }
+  box.innerHTML = `<h3>Google</h3><button type="button" class="r" data-g=""><span class="t">Search Google for “${esc(q)}”</span><span class="num"></span></button>`
+    + sugs.map((x, i) => `<button type="button" class="r" data-g="${i}"><span class="t">${esc(x)}</span><span class="num"></span></button>`).join("");
+  box.querySelectorAll("[data-g]").forEach(b => { b.onclick = () => webSearch(b.dataset.g === "" ? q : sugs[+b.dataset.g]); });
+}
+
 $("#q").addEventListener("input", onSearch);
 $("#q").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
   const q = L.q.trim().toLowerCase(); if (!q) return;
   const first = L.apps.filter(a => matchApp(a, q)).sort(byUse)[0];
   if (first) { $("#q").blur(); launch(first); }
+  else webSearch(L.q);
 });
 
 // ---- the Apps map: Treemap, Tree and List, drawn the way Atlas draws folders ---------------------------------
