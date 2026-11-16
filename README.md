@@ -138,9 +138,18 @@ Atlas on the PC needs the PC on. For a phone that works any time, the same Atlas
 Setup:
 
 1. Create the server with `server/cloud-init.yaml` as its user data (cloud-init). On first boot it installs Tailscale and rclone, closes every port to the internet, and prints a Tailscale sign-in link on the server's console. Open the link and approve the server, then turn off key expiry for it in the Tailscale admin console.
-2. Copy this folder to the server, make `atlas.config.json` from `atlas.server.example.json` and an `rclone.conf` (on the PC: `rclone authorize "drive"` and `rclone authorize "onedrive"` sign you in to each service in your browser).
+2. Copy this folder to the server, make `atlas.config.json` from `atlas.server.example.json` and an `rclone.conf` (on the PC: `rclone authorize "drive" "<client id>" "<client secret>"` and `rclone authorize "onedrive"` sign you in to each service in your browser). For Google Drive, use your own Google key (below).
 3. On the server: `sudo bash server/install.sh`. It installs Atlas and its rclone as services, and LibreOffice for office previews, and prints its address.
 4. Pair the phone: `sudo -u atlas /opt/atlas/venv/bin/python /opt/atlas/app/atlas_service.py --pair` prints a link with a one-time code.
+
+**Use your own Google key.** rclone's built-in Google Drive key is shared by every rclone user, and Google has cut its limit: requests are refused ("Quota exceeded … Requests per minute"), rclone waits and retries, and a folder can take a minute to open or fail. rclone also says that key will stop working during 2026. A key of your own is free and takes about ten minutes:
+
+1. In the [Google Cloud console](https://console.cloud.google.com), create a project and turn on the Google Drive API.
+2. In Google Auth Platform, set up the app as External. Add a home page and a privacy policy link (your own site, or this repository) and their domain, then publish the app (In production). An app left in Testing has its sign-ins expire after 7 days.
+3. Create an OAuth client of type Desktop app and keep its client ID and secret.
+4. Sign in with `rclone authorize "drive" "<client id>" "<client secret>"`. Google warns that the app isn't verified: it is your own, so go on (Advanced, then Go to the app). Put `client_id`, `client_secret` and the token in the `[gdrive]` part of `rclone.conf`.
+
+rclone's own guide: [Making your own client_id](https://rclone.org/drive/#making-your-own-client-id).
 
 ## As your Android Home screen (optional)
 
