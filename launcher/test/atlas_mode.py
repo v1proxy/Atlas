@@ -1,7 +1,7 @@
 # atlas_mode.py: Atlas's page inside the launcher (launcher mode), against the demo server with invented data.
 # A stand-in for the launcher's bridge (window.AtlasLauncher) records what the page asks of it.
 #   python docs/demo/demo_server.py &      then      python launcher/test/atlas_mode.py
-import os, sys
+import time, os, sys
 from playwright.sync_api import sync_playwright
 
 URL = os.environ.get("ATLAS_DEMO", "http://127.0.0.1:8799/")
@@ -122,6 +122,32 @@ with sync_playwright() as p:
     pg.locator(row("Reading room.jpg")).tap(); pg.wait_for_timeout(900)
     check("a photo that can't come says so", "can't be shown here right now" in pg.inner_text(".viewer .vbody"))
     check("no page errors in 1.1.0", not errs)
+    if errs: print(errs)
+    pg.close()
+
+    # 4. A folder that takes a while to open (the cloud): it says so at once, more taps wait for it, a failure says why.
+    pg = br.new_page(viewport={"width": 412, "height": 860}, is_mobile=True, has_touch=True)
+    errs, dialogs, ls = [], [], []
+    pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
+    pg.on("request", lambda r: "/api/ls" in r.url and ls.append(r.url))
+    pg.add_init_script(BRIDGE)
+    pg.goto(URL); pg.wait_for_selector("#map .tile"); pg.wait_for_timeout(300)
+    held = []                                                   # the folder's answer waits until the test lets it go
+    pg.route("**/api/ls?*", lambda r: held.append(r))
+    hold(pg, "#map .tile")
+    check("a folder's details offer Browse files", pg.locator("#o-browse").count() == 1)
+    pg.click("#o-browse"); pg.wait_for_timeout(600)
+    check("while it opens, it says Opening…", pg.locator("#atoast").is_visible() and pg.inner_text("#atoast").startswith("Opening "))
+    pg.evaluate("document.querySelector('#o-browse') && document.querySelector('#o-browse').click()"); pg.wait_for_timeout(400)
+    check("a second tap doesn't ask again", len(ls) == 1)
+    for r in held: r.continue_()
+    pg.wait_for_timeout(800)
+    check("then the folder opens and the note goes", pg.evaluate("S.browse") and pg.locator("#atoast").is_hidden())
+    pg.evaluate("while (atlasBack()) {}"); pg.wait_for_timeout(300)
+    pg.unroute("**/api/ls?*"); pg.route("**/api/ls?*", lambda r: r.abort())
+    hold(pg, "#map .tile"); pg.click("#o-browse"); pg.wait_for_timeout(600)
+    check("if Atlas doesn't answer, it says so, without a dialog", not dialogs and "didn't answer" in pg.inner_text("#atoast"))
+    check("no page errors when a folder is slow", not errs)
     if errs: print(errs)
     br.close()
 print("\n" + ("all passed" if not fails else f"{len(fails)} failed"))

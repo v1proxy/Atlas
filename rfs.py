@@ -28,6 +28,8 @@ FILES = os.path.join(cfg.HERE, "cache", "files")           # copies of recently 
 KEEP = int(CC.get("preview_cache_mb", 2048)) * 2 ** 20      # room for them on this server's disk
 WHOLE = 64 * 2 ** 20                                       # files up to this size are copied whole; larger ones stream
 STAT_FOR = 60                                              # seconds a file's details are trusted before asking again
+LIST_FOR = 15                                              # seconds a folder's contents are reused (repeated taps)
+WAIT = 20                                                  # seconds to wait for the running rclone before going without it
 
 
 class Missing(Exception):
@@ -69,8 +71,8 @@ class _UnixHTTP(http.client.HTTPConnection):
 _down = {"until": 0.0}
 
 
-def _connect(timeout):
-    if time.time() < _down["until"] or not RCD: raise _NoRcd()
+def _connect(timeout, force=False):
+    if (time.time() < _down["until"] and not force) or not RCD: raise _NoRcd()
     if RCD.startswith("http://"):
         host, _, port = RCD[7:].rstrip("/").partition(":")
         c = http.client.HTTPConnection(host, int(port or 80), timeout=timeout)
@@ -90,13 +92,28 @@ def _split(r):
     return r[:i], r[i:].strip("/")
 
 
-def _rc(cmd, params, timeout=90):
-    c = _connect(timeout)
+def _stuck():
+    """The running rclone didn't answer in time: one of its connections to the cloud is probably stuck (it happened on
+    2026-11-15: folders waited 60 s and failed). For a minute rclone runs directly instead, and the running one is told
+    to drop what it holds, so it starts again with new connections."""
+    if time.time() < _down["until"]: return
+    _down["until"] = time.time() + 60
+    def clear():
+        try:
+            c = _connect(15, force=True)
+            try: c.request("POST", "/fscache/clear", body=b"{}", headers={"Content-Type": "application/json"}); c.getresponse().read()
+            finally: c.close()
+        except Exception: pass
+    threading.Thread(target=clear, daemon=True).start()
+
+
+def _rc(cmd, params, timeout=None):
+    c = _connect(timeout or WAIT)
     try:
         c.request("POST", "/" + cmd, body=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
         r = c.getresponse(); data = r.read()
     except socket.timeout:
-        raise OSError("the cloud took too long to answer")
+        _stuck(); raise _NoRcd()
     except (OSError, http.client.HTTPException):
         _down["until"] = time.time() + 30; raise _NoRcd()
     finally:
@@ -127,13 +144,13 @@ class _Body:
 
 def _open_rcd(path, offset=0, count=None):
     fs, rel = _split(remote(path))
-    c = _connect(120)
+    c = _connect(30)
     try:
         h = {"Range": f"bytes={offset}-{'' if count is None else offset + count - 1}"} if (offset or count is not None) else {}
         c.request("GET", "/" + quote("[" + fs + "]", safe=":,=") + "/" + quote(rel, safe="/"), headers=h)
         r = c.getresponse()
     except socket.timeout:
-        c.close(); raise OSError("the cloud took too long to answer")
+        c.close(); _stuck(); raise _NoRcd()
     except (OSError, http.client.HTTPException):
         c.close(); _down["until"] = time.time() + 30; raise _NoRcd()
     if r.status not in (200, 206):
@@ -150,9 +167,30 @@ def open_range(path, offset=0, count=None):
         return _Body(p.stdout, proc=p)
 
 
+# The same question asked several times at once (a few taps on one folder) goes to the cloud once; all get the answer.
+_inflight, _inflight_lock = {}, threading.Lock()
+
+
+def _once(key, fn):
+    with _inflight_lock:
+        job = _inflight.get(key); lead = job is None
+        if lead: job = _inflight[key] = {"done": threading.Event(), "res": None, "err": None}
+    if not lead:
+        if not job["done"].wait(130): raise OSError("the cloud took too long to answer")
+        if job["err"]: raise job["err"]
+        return job["res"]
+    try:
+        job["res"] = fn(); return job["res"]
+    except Exception as e:
+        job["err"] = e; raise
+    finally:
+        job["done"].set()
+        with _inflight_lock: _inflight.pop(key, None)
+
+
 def forget():
     """After a change: what was learned about files and folders may be out of date."""
-    _stats.clear()
+    _stats.clear(); _lists.clear()
     try: _rc("fscache/clear", {}, timeout=10)
     except (_NoRcd, OSError): pass
 
@@ -170,26 +208,41 @@ def _mtime(s):
     except Exception: return time.time()
 
 
+_lists = {}
+
+
 def lsjson(path, recursive=False, files_only=False, extra=(), timeout=300):
-    if not recursive and not extra:                        # a folder's contents: from the running rclone
-        try:
-            fs, rel = _split(remote(path))
-            j = _rc("operations/list", {"fs": fs, "remote": rel, "opt": {"noMimeType": True, "filesOnly": files_only}}, timeout=min(timeout, 120))
-            out, now = [], time.time()
-            for e in j.get("list") or []:
-                d = {"rel": e["Name"], "name": e["Name"], "dir": e.get("IsDir", False),
-                     "size": max(0, e.get("Size", 0)), "mtime": _mtime(e.get("ModTime", ""))}
-                out.append(d)
-                _stats[W.normcase(W.join(path, e["Name"]))] = ({"name": d["name"], "dir": d["dir"], "size": d["size"], "mtime": d["mtime"]}, now)
-            return out
-        except _NoRcd:
-            pass
+    if not recursive and not extra:                        # a folder's contents: from the running rclone, asked once
+        key = (W.normcase(path), files_only)
+        hit = _lists.get(key)
+        if hit and time.time() - hit[1] < LIST_FOR: return [dict(e) for e in hit[0]]
+        out = _once(("ls",) + key, lambda: _ls(path, files_only, timeout))
+        if len(_lists) > 2000: _lists.clear()
+        _lists[key] = (out, time.time())
+        return [dict(e) for e in out]
     args = ["lsjson", "--no-mimetype", remote(path)] + (["-R", "--fast-list"] if recursive else []) + (["--files-only"] if files_only else []) + list(extra)
     out = []
     for e in json.loads(_run(args, timeout=timeout) or "[]"):
         out.append({"rel": e["Path"].replace("/", "\\"), "name": e["Name"], "dir": e.get("IsDir", False),
                     "size": max(0, e.get("Size", 0)), "mtime": _mtime(e.get("ModTime", ""))})
     return out
+
+
+def _ls(path, files_only, timeout):
+    try:
+        fs, rel = _split(remote(path))
+        j = _rc("operations/list", {"fs": fs, "remote": rel, "opt": {"noMimeType": True, "filesOnly": files_only}})
+        out, now = [], time.time()
+        for e in j.get("list") or []:
+            d = {"rel": e["Name"], "name": e["Name"], "dir": e.get("IsDir", False),
+                 "size": max(0, e.get("Size", 0)), "mtime": _mtime(e.get("ModTime", ""))}
+            out.append(d)
+            _stats[W.normcase(W.join(path, e["Name"]))] = ({"name": d["name"], "dir": d["dir"], "size": d["size"], "mtime": d["mtime"]}, now)
+        return out
+    except _NoRcd:                                         # without it (or while it is stuck): rclone directly
+        args = ["lsjson", "--no-mimetype", remote(path)] + (["--files-only"] if files_only else [])
+        return [{"rel": e["Path"].replace("/", "\\"), "name": e["Name"], "dir": e.get("IsDir", False),
+                 "size": max(0, e.get("Size", 0)), "mtime": _mtime(e.get("ModTime", ""))} for e in json.loads(_run(args, timeout=timeout) or "[]")]
 
 
 _stats = {}
@@ -199,10 +252,14 @@ def stat(path):
     key = W.normcase(path)
     hit = _stats.get(key)
     if hit and time.time() - hit[1] < STAT_FOR: return hit[0]
+    return _once(("stat", key), lambda: _stat(path, key))
+
+
+def _stat(path, key):
     r = remote(path)
     try:
         fs, rel = _split(r)
-        e = _rc("operations/stat", {"fs": fs, "remote": rel, "opt": {"noMimeType": True}}, timeout=90).get("item")
+        e = _rc("operations/stat", {"fs": fs, "remote": rel, "opt": {"noMimeType": True}}).get("item")
     except _NoRcd:
         try: e = json.loads(_run(["lsjson", "--stat", "--no-mimetype", r], timeout=60) or "null")
         except OSError: return None

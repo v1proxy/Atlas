@@ -132,7 +132,7 @@ Atlas on the PC needs the PC on. For a phone that works any time, the same Atlas
 - Paths stay the PC's (`G:\My Drive\...`), so the map, tags and corrections are the same on both. With `state_folder` set to the same folder in your cloud drive on both, tags, corrections and colors are shared (the newer copy wins).
 - Deletes go to Google Drive's trash or OneDrive's recycle bin. Read-only folders stay read only, and `blocked` folders are never listed or opened.
 - The server has no folder of links and no "Open on PC"; everything else works the same.
-- Opening files is quick: one rclone stays running (`atlas-rclone.service`) instead of starting for every request, and a file up to 64 MB is kept on the server's disk once opened (2 GB in all, the least recently opened go first; `preview_cache_mb` in `cloud` changes that). Word, Excel and PowerPoint files are shown as PDFs made with LibreOffice, which the installer adds.
+- Opening files is quick: one rclone stays running (`atlas-rclone.service`) instead of starting for every request (if it stops answering for 20 s, Atlas runs rclone directly for a minute and has it start over), and a file up to 64 MB is kept on the server's disk once opened (2 GB in all, the least recently opened go first; `preview_cache_mb` in `cloud` changes that). Word, Excel and PowerPoint files are shown as PDFs made with LibreOffice, which the installer adds.
 - Nothing on the server is reachable from the internet: its firewall lets in only your tailnet, and Atlas answers through `tailscale serve` as on the PC.
 
 Setup:

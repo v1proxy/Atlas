@@ -19,17 +19,31 @@ function chips(tags, removable) {
   return (tags || []).map(t => `<span class="chipt"><i style="background:${tagColor(FB.vocab[t])}"></i>${esc(t)}${removable ? `<button type="button" data-rm="${esc(t)}" aria-label="Remove ${esc(t)}">×</button>` : ""}</span>`).join("");
 }
 
+// Opening a folder can take a moment (the cloud), so it says so at once, and more taps on the same folder wait for it.
+let opening = null;
 async function browse(dir, focusPath) {
+  if (opening && opening.dir === dir) { if (focusPath) opening.focus = focusPath; return; }
   const from = S.browse ? FB.dir : null, back = FB.noHist; FB.noHist = false;
+  const me = opening = { dir, focus: focusPath }, name = dir.split("\\").filter(Boolean).pop() || dir;
+  const t1 = setTimeout(() => { if (opening === me) toast(`Opening ${name}…`); }, 300);
+  const t2 = setTimeout(() => { if (opening === me) toast(`Opening ${name}… The cloud is slow right now, still trying.`); }, 8000);
+  const done = () => { clearTimeout(t1); clearTimeout(t2); if (opening === me) opening = null; const t = document.getElementById("atoast"); if (t && /^Opening /.test(t.textContent)) t.hidden = true; };
   try {
     const [d, v] = await Promise.all([api("/api/ls?" + new URLSearchParams({ path: dir })), api("/api/tags")]);
+    done();
     if (!from) FB.hist = []; else if (!back && from !== d.path) FB.hist.push(from);   // for Back in the launcher
     FB.vocab = v.vocab; S.browse = true;
     document.body.classList.remove("sheet");          // on a phone, the folder's details sheet gives way to its files
     Object.assign(FB, { dir: d.path, entries: d.entries, readonly: d.readonly, parent: d.parent, checked: new Set(), focus: null });
     FB.msg = ""; FB.err = false; render();
+    focusPath = me.focus;
     if (focusPath) { const e = FB.entries.find(x => x.path.toLowerCase() === focusPath.toLowerCase()); if (e) focusEntry(e); }
-  } catch (e) { FB.msg = "Can't open that folder: " + e.message; FB.err = true; if (S.browse) render(); else alert(FB.msg); }
+  } catch (e) {
+    done();
+    const why = /failed to fetch|networkerror|load failed/i.test(e.message) ? "Atlas didn't answer. Check that Tailscale is on, and try again." : e.message;
+    FB.msg = `Can't open ${name}: ${why}`; FB.err = true;
+    if (S.browse) render(); else toast(FB.msg, 6000);
+  }
 }
 
 function leaveBrowser() { S.browse = false; FB.hist = []; FB.fromLauncher = false; render(); }

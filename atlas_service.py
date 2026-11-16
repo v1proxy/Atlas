@@ -7,7 +7,7 @@
 # with the PC through the state folder.
 import os, sys, json, time, threading, traceback, socket, mimetypes, html
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -185,6 +185,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *a): pass
 
+    def log_request(self, code="-", size="-"):
+        """Requests that were slow (over 3 s) or failed go to slow.log: that is how a stuck connection to the cloud
+        was found on 2026-11-15 (folders waiting 60 s)."""
+        try:
+            if not self.path.startswith(("/api/", "/map.json")) or self.path.startswith("/api/clientlog"): return
+            ms = int((time.time() - getattr(self, "_t0", time.time())) * 1000)
+            try: c = int(code)
+            except (TypeError, ValueError): c = 0
+            if ms < 3000 and c < 500 and c not in (403, 404): return
+            sl = os.path.join(HERE, "slow.log")
+            if os.path.exists(sl) and os.path.getsize(sl) > 512_000: os.replace(sl, sl + ".1")
+            with open(sl, "a", encoding="utf-8") as f: f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {self.command} {unquote(self.path)[:160]} {code} {ms}ms\n")
+        except Exception: pass
+
     # ---- plumbing --------------------------------------------------------------------------
     def _headers(self, code, ctype, length, extra=None, csp=CSP_PAGE):
         self.send_response(code)
@@ -289,6 +303,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- GET -------------------------------------------------------------------------------
     def do_GET(self):
+        self._t0 = time.time()
         if not self._host_ok(): return self._send(421, "wrong host", "text/plain")
         u = urlsplit(self.path); p = u.path; q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if p.startswith("/static/"): return self._static(p[len("/static/"):])
@@ -377,6 +392,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- POST ------------------------------------------------------------------------------
     def do_POST(self):
+        self._t0 = time.time()
         if not self._host_ok(): return self._send(421, "wrong host", "text/plain")
         origin = self.headers.get("Origin", "")
         if self.headers.get("X-Atlas") != "1" or (origin and origin not in sec.allowed_origins()):
@@ -431,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=cycle, kwargs={"reindex": False}, daemon=True).start()
                 return self._json(200, {"ok": True})
             if p == "/api/clientlog":                              # a page's own errors, so they can be found later
-                line = json.dumps({k: str(body.get(k, ""))[:600] for k in ("msg", "where", "stack", "ua")}, ensure_ascii=False)
+                line = json.dumps({k: str(body.get(k, ""))[:4000] for k in ("msg", "where", "stack", "ua")}, ensure_ascii=False)
                 clog = os.path.join(HERE, "client.log")
                 try:
                     if os.path.exists(clog) and os.path.getsize(clog) > 512_000: os.replace(clog, clog + ".1")
