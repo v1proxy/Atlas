@@ -495,6 +495,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     s = socket.socket()
+    # After a restart the last connections linger for about a minute (TIME_WAIT), and a plain bind failed: Atlas thought it
+    # was already running and stayed down for that minute (2026-11-16). With SO_REUSEADDR, Linux still refuses the bind
+    # while another Atlas is listening. Not on Windows, where that option would let a second Atlas share the port.
+    if os.name != "nt": s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try: s.bind(("127.0.0.1", PORT))
     except OSError: log("already running, exiting"); return
     finally: s.close()

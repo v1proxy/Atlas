@@ -246,7 +246,7 @@ function viewer(e) {
   const o = document.createElement("div"); o.className = "viewer"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); o.setAttribute("aria-label", e.name);
   o.innerHTML = `<div class="vtop"><div class="vbar"><span>${esc(e.name)}</span><button type="button" class="btn" id="v-close">Close</button></div>
     ${L ? `<div class="vacts"><button type="button" id="v-pin">${esc(pinLabel(e.path))}</button>${native("share") ? `<button type="button" id="v-share">Share</button>` : ""}${native("openWith") ? `<button type="button" id="v-open">Open in app</button>` : ""}<button type="button" id="v-info" aria-expanded="false">Details</button></div>
-    <div class="vinfo" hidden><dl><dt>Size</dt><dd>${e.size ? fmtSize(e.size) : "—"}</dd><dt>Changed</dt><dd>${fmtDate(e.mtime)}</dd></dl>${chips(e.tags)}<div class="path"><b>Path</b>${esc(e.path)}</div></div>` : ""}</div>
+    <div class="vinfo" hidden><dl><dt>Size</dt><dd>${e.size ? fmtSize(e.size) : "-"}</dd><dt>Changed</dt><dd>${fmtDate(e.mtime)}</dd></dl>${chips(e.tags)}<div class="path"><b>Path</b>${esc(e.path)}</div></div>` : ""}</div>
     <div class="pv vbody"></div>`;
   document.body.appendChild(o); document.body.classList.add("noscroll");
   const keys = ev => { if (ev.key === "Escape") close(); };
