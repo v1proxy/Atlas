@@ -141,8 +141,8 @@ with sync_playwright() as p:
     sb = pg.locator(".r.in1", has_text="Signal").first.bounding_box()                        # holding calls
     pg.mouse.move(sb["x"] + 40, sb["y"] + sb["height"] / 2); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up(); pg.wait_for_timeout(200)
     pg.locator("[data-cn]").first.click(); pg.wait_for_timeout(150)
-    pg.locator("[data-cg]").first.click(); pg.wait_for_timeout(150)
-    c_reach = pg.evaluate("(window.MOCK_REACH || []).map(a => a.kind + ':' + (a.mime ? a.mime.split('.').slice(-2).join('.') : a.number || a.id))") + pg.evaluate("(window.MOCK_WEB || []).slice(-1)")
+    c_google_rows = pg.locator("#results .r .t").evaluate_all("ts => ts.filter(t => t.textContent.startsWith('Search Google')).map(t => t.textContent)")
+    c_reach = pg.evaluate("(window.MOCK_REACH || []).map(a => a.kind + ':' + (a.mime ? a.mime.split('.').slice(-2).join('.') : a.number || a.id))")
     n0 = pg.evaluate("window.MOCK_LOG.length")
     pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("ada", delay=30); pg.wait_for_timeout(700)
     c_google = [pg.evaluate(f"window.MOCK_LOG.slice({n0}).filter(x => x[0] === 'web.suggest').length"), pg.locator("#web [data-g]").count()]
@@ -164,6 +164,6 @@ print("update, none:", upd_none, "| ready:", upd_ready, "| tapped Update:", upd_
 print("google rows:", rows, "| searched:", web, "| Enter with an app match: launched", enter_app[0], "web searches", enter_app[1])
 print("contacts: before allowing", c_before, "| sections", c_heads, "| names", c_names, "| apps", c_apps, "| WhatsApp opened:", c_opts)
 print("contacts, the rows:\n" + "\n".join(c_rows))
-print("contacts: WhatsApp > Call, Phone, hold Signal, the name, Search Google ->", c_reach, "| no contact matches 'chrome':", c_none)
+print("contacts: WhatsApp > Call, Phone, hold Signal, the name ->", c_reach, "| Search Google rows:", c_google_rows, "| no contact matches 'chrome':", c_none)
 print("google suggestions asked for 'ad..' while it matched a contact:", c_google[0], "| Google rows then:", c_google[1], "| for 'weather':", c_google[2])
 print("errors:", errors or "none")

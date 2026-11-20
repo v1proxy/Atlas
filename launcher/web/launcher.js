@@ -777,10 +777,9 @@ function clearSearch() { $("#q").value = ""; L.q = ""; cts = null; hideResults()
 // Contacts, between Apps and Files: the people whose names match, each with the apps that can reach them listed under
 // the name, read from the phone and never sent anywhere. An app that does one thing does it at a tap (Phone calls,
 // Messages starts a text, Email a mail); an app that can chat and call (WhatsApp, Signal, Telegram) lists Message, Call
-// and Video call under it at a tap, and holding it calls. The name opens the contact, and after each contact a row
-// searches Google for that name. Android asks once to allow it.
+// and Video call under it at a tap, and holding it calls. The name opens the contact. Android asks once to allow it.
 // When what you type matches a contact, Google's suggestions are left out: the contact takes their place and the name
-// doesn't go to Google (its row still searches Google when you tap it).
+// doesn't go to Google. The one Search Google row, under Google at the end, still searches it when you tap it.
 let cts = null, ctsSeq = 0, ctsT = 0, cOpen = null, ctsQ = "", ctsP = Promise.resolve(null);
 function findContacts(text) {
   clearTimeout(ctsT); const my = ++ctsSeq, q = (text || "").trim();
@@ -807,15 +806,13 @@ function contactsHtml() {
       const open = cOpen === i + "/" + j, many = a.opts.length > 1;
       return row("in1", `data-ci="${i}" data-cj="${j}"`, a.name, "", many ? (open ? "−" : "+") : "")
         + (open ? a.opts.map((o, k) => row("in2", `data-ci="${i}" data-cj="${j}" data-ck="${k}"`, o.label)).join("") : "");
-    }).join("")
-    + row("", `data-cg="${i}"`, `Search Google for “${c.name}”`)).join("");
+    }).join("")).join("");
 }
 function wireContacts(R) {
   const go = act => { if (!act) return; $("#q").blur(); fire("contacts.open", act); };
   const again = () => { const st = R.scrollTop; showResults(...lastRes); R.scrollTop = st; };
   const allow = R.querySelector("#c-allow"); if (allow) allow.onclick = () => fire("contacts.allow");
   R.querySelectorAll("[data-cn]").forEach(b => { const c = cts.contacts[+b.dataset.cn]; b.onclick = () => go({ kind: "card", id: c.id, key: c.key }); });
-  R.querySelectorAll("[data-cg]").forEach(b => { const c = cts.contacts[+b.dataset.cg]; b.onclick = () => webSearch(c.name); });
   R.querySelectorAll("[data-ci]").forEach(b => {
     const at = b.dataset.ci + "/" + b.dataset.cj, a = cts.contacts[+b.dataset.ci].apps[+b.dataset.cj];
     if (b.dataset.ck !== undefined) { b.onclick = () => go(a.opts[+b.dataset.ck].act); return; }       // Message, Call, Video call
