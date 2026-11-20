@@ -93,6 +93,11 @@
       }
       case "contacts.allow": window.MOCK_CONTACTS_OK = true; setTimeout(() => window.onLauncherEvent({ type: "contacts" }), 50); return true;
       case "contacts.open": (window.MOCK_REACH = window.MOCK_REACH || []).push(args); return true;
+      case "place.get": return window.MOCK_PLACE || { allowed: false, on: true };            // Sun (1.4.0)
+      case "place.allow":                                                                     // a made-up answer: Lisbon
+        if (!window.MOCK_PLACE_NO) { window.MOCK_PLACE = { allowed: true, on: true, lat: 38.72, lon: -9.14, at: Date.now() }; setTimeout(() => window.onLauncherEvent({ type: "place" }), 50); }
+        return true;
+      case "files.theme": window.MOCK_FILES_THEME = args.theme; return true;
       default: return true;
     }
   }

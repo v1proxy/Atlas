@@ -22,6 +22,18 @@
 /* Ivory (hold the Settings circle): black and ivory swap places: the background, text, lines, the circle and its cross. */
 body.ivory { --bg: #F2EBD8; --surface: #F2EBD8; --surface-2: #E5DBC6; --ink: #000000; --dim: #67635C; --line: #C6BDAB;    /* a warm ivory, not white */
   --warn: #B3261E; --veil: rgba(242, 235, 216, .84); --box-ink: #000000; color-scheme: light; }
+/* Sun (Settings, Appearance; launcher.js): six points of the sky, from the top of the upper box to the bottom of the lower
+   one. They are registered as colors, so each new set glides into the next over the 20 s the page waits between them,
+   instead of stepping. The names stay white: the sky is dark at night, ivory or not. */
+@property --s0 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --s1 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --s2 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --s3 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --s4 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --s5 { syntax: "<color>"; inherits: true; initial-value: #000000; }
+:root { --sky-t: .9s; transition: --s0 var(--sky-t) linear, --s1 var(--sky-t) linear, --s2 var(--sky-t) linear,
+  --s3 var(--sky-t) linear, --s4 var(--sky-t) linear, --s5 var(--sky-t) linear; }
+body.sun { --box-ink: #FFFFFF; }
 /* The swap grows out of the circle (launcher.js), so the usual cross-fade is off. */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -73,6 +85,8 @@ body[data-screen="settings"] .tools { display: none; }
 .box { color: var(--box-ink); }
 .box.top { background: var(--top-bg, var(--r3)); }                /* one color: Apps lighter, Files deeper; a gradient runs top to bottom */
 .box.bottom { background: var(--bottom-bg, var(--r2)); }
+body.sun .box.top { background: linear-gradient(to bottom, var(--s0), var(--s1), var(--s2)); }
+body.sun .box.bottom { background: linear-gradient(to bottom, var(--s3), var(--s4), var(--s5)); }
 /* Each name sits in the box's outer corner, Apps and Files on opposite corners. */
 .box .lbl { position: absolute; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; }
 .box .v { position: absolute; max-width: calc(100% - 34px); font: 12px/1.45 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -239,6 +253,15 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .wheel .hd { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #000, 0 2px 8px rgba(0, 0, 0, .5);
   display: grid; place-items: center; font: 500 11px var(--f-mono); color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
 .wheel .hd[hidden] { display: none; }
+/* Sun: today's sky where you are, midnight to midnight, the sky overhead at the top; a white mark for now. */
+.sunday { position: relative; display: grid; gap: 5px; min-width: 0; }
+.sunday[hidden] { display: none; }
+.sunday canvas { display: block; width: 100%; height: 64px; border: 1px solid var(--line); }   /* the line: night is black too */
+.sunday .now { position: absolute; left: 0; top: 0; width: 2px; height: 64px; margin-left: -1px; background: #FFFFFF; box-shadow: 0 0 0 1px #000000; pointer-events: none; }
+.sunday .ticks { position: relative; height: 14px; font: 11px/14px var(--f-mono); color: var(--dim); }
+.sunday .ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.sunday .ticks span:first-child { transform: none; }
+.sunday .ticks span:last-child { transform: translateX(-100%); }
 /* A small Home to judge the color on: two boxes, the band with its line, the circle. */
 .mh { position: relative; width: 78px; height: 140px; display: grid; grid-template-rows: 1fr 1fr; gap: 5px; padding: 3px; background: var(--bg); border: 1px solid var(--line); }
 .mh i { display: block; }

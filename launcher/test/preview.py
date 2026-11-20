@@ -150,6 +150,58 @@ with sync_playwright() as p:
     c_google.append(pg.locator("#web [data-g]").count())
     pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("chrome", delay=20); pg.wait_for_timeout(400)
     c_none = pg.locator("#results h3").all_inner_texts()
+    # Sun (1.4.0): picking Sun asks for the phone's place (the stand-in answers Lisbon); the boxes follow the sky there.
+    # The clock is frozen at moments of 2026-11-20 in Lisbon's time; the colors glide for 0.9 s to each new moment.
+    sx = b.new_context(viewport={"width": 412, "height": 915}, device_scale_factor=2, has_touch=True, is_mobile=True,
+                       timezone_id="Europe/Lisbon", locale="en-US")
+    sp = sx.new_page()
+    sp.on("pageerror", lambda e: errors.append(str(e)))
+    sp.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    sp.goto("http://127.0.0.1:8811/index.html"); sp.wait_for_timeout(900)
+    sp.click("#tonebtn"); sp.wait_for_timeout(400)
+    s_note0 = sp.inner_text("#o-look")
+    sp.click('#o-mode button[data-m="sun"]'); sp.wait_for_timeout(1200)
+    s_asked = sp.evaluate("window.MOCK_LOG.filter(x => x[0] === 'place.allow').map(x => x[1])")
+    s_state = sp.evaluate("[document.body.classList.contains('sun'), L.placeOk, L.place && [L.place.lat, L.place.lon], document.querySelector('#wheel').hidden, document.querySelector('#sunday').hidden, document.querySelector('#o-place').hidden]")
+    s_files = sp.evaluate("window.MOCK_FILES_THEME")
+    sp.evaluate("""() => { const d0 = new Date(2026, 10, 20).getTime(); window.__T = d0 + 15 * 3600e3; Date.now = () => window.__T; skyPaint(true); paintLook(); }""")
+    sp.wait_for_timeout(1100)
+    sp.locator("#s-look").scroll_into_view_if_needed(); sp.screenshot(path=os.path.join(SHOTS, "sun-settings.png"))
+    s_note = sp.inner_text("#o-look")
+    day = sp.evaluate("""() => { const d0 = new Date(2026, 10, 20).getTime(), t = sunTimes(where(), d0, 864e5);
+        let noon = d0, best = -99; for (let m = 0; m < 1440; m += 1) { const e = sunPos(d0 + m * 6e4, L.place.lat, L.place.lon).el; if (e > best) { best = e; noon = d0 + m * 6e4; } }
+        return { d0, rise: t.rise, set: t.set, noon, top: best }; }""")
+    MIN = 60e3
+    moments = [("night", day["d0"] + 3 * 3600e3), ("nautical dawn", day["rise"] - 50 * MIN), ("blue hour", day["rise"] - 18 * MIN),
+               ("sunrise", day["rise"] + 3 * MIN), ("golden hour", day["rise"] + 40 * MIN), ("midday", day["noon"]),
+               ("golden hour pm", day["set"] - 35 * MIN), ("sunset", day["set"] + 2 * MIN), ("dusk", day["set"] + 25 * MIN),
+               ("late dusk", day["set"] + 55 * MIN), ("night pm", day["d0"] + 22 * 3600e3)]
+    sp.click("#title"); sp.wait_for_timeout(400)
+    s_rows, s_shots = [], []
+    for i, (name, t) in enumerate(moments):
+        sp.evaluate(f"() => {{ window.__T = {t}; skyPaint(true); }}"); sp.wait_for_timeout(1100)
+        f = os.path.join(SHOTS, f"sun-{i:02d}-{name.replace(' ', '-')}.png"); sp.screenshot(path=f); s_shots.append((name, f))
+        s_rows.append(sp.evaluate("""() => { const cs = getComputedStyle(document.documentElement), s = skyAt(Date.now(), where());
+            return [new Date(Date.now()).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'}), skyPhase(s), +s.el.toFixed(1),
+              cs.getPropertyValue('--s0').trim(), cs.getPropertyValue('--s5').trim(), getComputedStyle(document.querySelector('.box.top')).color]; }"""))
+    # the maps take the sky at their own brightness: gray at night, blue by day
+    sp.evaluate(f"() => {{ window.__T = {day['noon']}; skyPaint(true); }}"); sp.click("#box-apps"); sp.wait_for_timeout(500)
+    s_tiles_day = sp.evaluate("[...document.querySelectorAll('#map .tile')].slice(0, 400).map(t => +t.style.getPropertyValue('--c')).reduce((a, b) => Math.max(a, b), 0)")
+    sp.screenshot(path=os.path.join(SHOTS, "sun-apps-midday.png"))
+    sp.evaluate(f"() => {{ window.__T = {day['d0'] + 2 * 3600e3}; skyPaint(true); }}"); sp.wait_for_timeout(300)
+    s_tiles_night = sp.evaluate("[...document.querySelectorAll('#map .tile')].map(t => +t.style.getPropertyValue('--c')).reduce((a, b) => Math.max(a, b), 0)")
+    sp.screenshot(path=os.path.join(SHOTS, "sun-apps-night.png"))
+    sp.click("#title"); sp.click("#tonebtn"); sp.wait_for_timeout(400)
+    sp.click('#o-mode button[data-m="solid"]'); sp.wait_for_timeout(300)
+    s_back = sp.evaluate("[document.body.classList.contains('sun'), window.MOCK_FILES_THEME, getComputedStyle(document.querySelector('#mh .t')).backgroundColor]")
+    sx.close()
+    try:                                                    # one sheet of the day's home screens, to look at side by side
+        from PIL import Image
+        ims = [Image.open(f) for _, f in s_shots]; w, h = ims[0].size; k = 4
+        sheet = Image.new("RGB", (w // k * len(ims), h // k), "black")
+        for i, im in enumerate(ims): sheet.paste(im.resize((w // k, h // k)), (i * w // k, 0))
+        sheet.save(os.path.join(SHOTS, "sun-day.png"))
+    except ImportError: pass
     b.close()
 srv.shutdown()
 print("cross spinning while opening:", spinning, "| animations still running after 1.5 s:", still)
@@ -166,4 +218,8 @@ print("contacts: before allowing", c_before, "| sections", c_heads, "| names", c
 print("contacts, the rows:\n" + "\n".join(c_rows))
 print("contacts: WhatsApp > Call, Phone, hold Signal, the name ->", c_reach, "| Search Google rows:", c_google_rows, "| no contact matches 'chrome':", c_none)
 print("google suggestions asked for 'ad..' while it matched a contact:", c_google[0], "| Google rows then:", c_google[1], "| for 'weather':", c_google[2])
+print("sun: note before", repr(s_note0), "| asked for the place:", s_asked, "| state [sun, allowed, place, wheel hidden, strip hidden, button hidden]:", s_state)
+print("sun: Atlas in Files gets", s_files, "| Settings says:", repr(s_note))
+print("sun: the day in Lisbon, 2026-11-20 [time, phase, sun's height, top color, bottom color, name color]:\n" + "\n".join("  " + str(r) for r in s_rows))
+print("sun: strongest tile color at midday", s_tiles_day, "| at night", s_tiles_night, "| back to One color [sun, Files theme, small Home]:", s_back)
 print("errors:", errors or "none")

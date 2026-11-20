@@ -43,6 +43,10 @@ class Prefs(ctx: Context) {
     /** The launcher's color (Settings, Appearance) as JSON, for Atlas in the Files view; empty when never set. */
     fun themeJson(): String = synchronized(lock) { (read("theme") as? JSONObject)?.toString() ?: "" }
 
+    /** Where the phone was last, for Sun mode: {lat, lon, at}, approximate, kept on the phone only (Where.kt). */
+    fun place(): JSONObject? = synchronized(lock) { read("place") as? JSONObject }
+    fun setPlace(p: JSONObject) = synchronized(lock) { write("place", p) }
+
     fun string(key: String, def: String = ""): String = synchronized(lock) { (read(key) as? String) ?: def }
     fun setString(key: String, value: String) = synchronized(lock) { write(key, value) }
     fun flag(key: String): Boolean = synchronized(lock) { read(key) == true }

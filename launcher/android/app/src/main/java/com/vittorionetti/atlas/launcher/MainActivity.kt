@@ -72,6 +72,10 @@ class MainActivity : Activity() {
     private var contactsWas = false
     private val contacts by lazy { Contacts(this) }
     private var pendingCall: String? = null
+    private val where by lazy { Where(this, prefs) }
+    private var placeWas = false
+    @Volatile private var filesTheme: String? = null          // Sun mode: the sky for Atlas in Files, sent by the home page
+    private var filesThemeDirty = false
     private var latest: JSONObject? = null
     private var cfgServer = ""
     private var cfgPair = ""
@@ -83,6 +87,7 @@ class MainActivity : Activity() {
         private const val REQ_HOME = 41
         private const val REQ_CONTACTS = 42
         private const val REQ_CALL = 43
+        private const val REQ_PLACE = 44
     }
 
     // ---- start ---------------------------------------------------------------------------------------------
@@ -126,6 +131,7 @@ class MainActivity : Activity() {
 
         usageWas = apps.hasUsageAccess()
         contactsWas = contacts.allowed()
+        placeWas = where.allowed()
         apps.listen { event("apps") }
 
         // Opened from the apps after Quit: be the Home screen again (Android asks once the page is ready).
@@ -190,8 +196,21 @@ class MainActivity : Activity() {
 
     private fun goHome() {
         if (showingFiles) { files.visibility = View.GONE; home.visibility = View.VISIBLE; showingFiles = false }
+        if (filesThemeDirty) pushFilesTheme()
         event("home")
     }
+
+    /**
+     * Atlas in Files takes the launcher's color: the saved one, or in Sun mode the sky the home page sends now and then
+     * ("files.theme"). Atlas redraws its map for it, so while Files is in front the color waits until you go Home.
+     */
+    private fun pushFilesTheme() = runOnUiThread {
+        if (!filesReady || showingFiles) { filesThemeDirty = true; return@runOnUiThread }
+        filesThemeDirty = false
+        files.evaluateJavascript("window.atlasTheme&&atlasTheme(${filesThemeJson().ifEmpty { "null" }})", null)
+    }
+
+    private fun filesThemeJson(): String = filesTheme ?: prefs.themeJson()
 
     private fun event(type: String) {
         runOnUiThread { home.evaluateJavascript("window.onLauncherEvent&&onLauncherEvent({type:${JSONObject.quote(type)}})", null) }
@@ -219,6 +238,7 @@ class MainActivity : Activity() {
         val now = apps.hasUsageAccess()
         if (now != usageWas) { usageWas = now; apps.forgetUsage(); event("apps") } else event("resume")
         if (contacts.allowed() != contactsWas) { contactsWas = !contactsWas; event("contacts") }   // allowed or taken back in Settings
+        if (where.allowed() != placeWas) { placeWas = !placeWas; event("place") }
     }
 
     override fun onPause() {
@@ -269,12 +289,19 @@ class MainActivity : Activity() {
         "prefs.get" -> prefs.page()
         "prefs.set" -> {
             val key = a.getString("key"); prefs.setFromPage(key, a.opt("value"))
-            if (key == "theme") {
-                applyScheme()
-                runOnUiThread { if (filesReady) files.evaluateJavascript("window.atlasTheme&&atlasTheme(${prefs.themeJson().ifEmpty { "null" }})", null) }
-            }
+            if (key == "theme") { applyScheme(); pushFilesTheme() }
             true
         }
+        "files.theme" -> {                               // Sun mode: the sky as a gradient, or null to go back to the saved color
+            val t = a.optJSONObject("theme")?.toString()
+            if (t != filesTheme) { filesTheme = t; pushFilesTheme() }
+            true
+        }
+        "place.get" -> {                                 // Sun mode: the kept place now; a fresher one comes as the "place" event
+            where.refresh(if (a.optBoolean("fresh")) 10 * 60_000L else 3 * 3_600_000L) { event("place") }
+            where.json()
+        }
+        "place.allow" -> { askPlace(a.optBoolean("auto")); true }
         "launch" -> { launch(a); true }
         "appInfo" -> { apps.details(a.getString("key")); true }
         "uninstall" -> { uninstall(a.getString("key")); true }
@@ -359,7 +386,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun home() { runOnUiThread { goHome() } }
         @JavascriptInterface fun haptic(kind: String) { runOnUiThread { haptic(files, kind) } }
         @JavascriptInterface fun isPinned(path: String): Boolean = prefs.isPinnedFile(path)
-        @JavascriptInterface fun theme(): String = prefs.themeJson()
+        @JavascriptInterface fun theme(): String = filesThemeJson()
         @JavascriptInterface fun pin(json: String): String {
             val r = prefs.togglePinFile(JSONObject(json))
             if (r != "full") event("pins")
@@ -390,6 +417,17 @@ class MainActivity : Activity() {
         } else startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
 
+    // ---- Sun mode (1.4.0): where the phone is, roughly; see Where.kt -------------------------------------------
+    /** Picking Sun asks Android, if Android still will (once, and once more after a no); Allow location asks too, and
+     *  opens the app's settings when Android won't ask any more. Allowed already: a fresh place. */
+    private fun askPlace(auto: Boolean) = runOnUiThread {
+        if (where.allowed()) { where.refresh(10 * 60_000L) { event("place") }; return@runOnUiThread }
+        if (!prefs.flag("askedPlace") || shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            prefs.setFlag("askedPlace", true)
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION), REQ_PLACE)
+        } else if (!auto) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+    }
+
     private fun openContact(a: JSONObject) {
         if (a.optString("kind") == "call") { placeCall(a.getString("number")); return }
         val i = contacts.intent(a) ?: return
@@ -417,6 +455,7 @@ class MainActivity : Activity() {
         when (requestCode) {
             REQ_CONTACTS -> { contactsWas = contacts.allowed(); event("contacts") }
             REQ_CALL -> pendingCall?.let { n -> pendingCall = null; startCall(n, ok) }
+            REQ_PLACE -> { placeWas = where.allowed(); if (ok) where.refresh(0L) { event("place") }; event("place") }
         }
     }
 
@@ -584,6 +623,7 @@ class MainActivity : Activity() {
                 if (filesReady) {
                     CookieManager.getInstance().flush()
                     pendingFilesJs?.let { files.evaluateJavascript(it, null) }; pendingFilesJs = null
+                    if (filesThemeDirty) pushFilesTheme()
                     if (pairing) { pairing = false; event("paired") }
                 }
             }

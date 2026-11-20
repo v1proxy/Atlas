@@ -30,6 +30,7 @@ On each ring the most used sits in the middle, then to its left and right.
 ## Settings
 
 - **Appearance**: a color wheel for any color, or a gradient between two colors. The color runs through every screen and map, Atlas's own in Files included; with a gradient, each tile and dot takes the color of where it sits, top to bottom. **Back to red** resets it.
+- **Sun**, the third choice in Appearance: the gradient follows the sky where you are, from the top of the screen (the sky overhead) to the bottom (the horizon). Black at night; at dawn navy, violet and pink, then sunrise, gold and the blue of the day; warmer in the evening, and black again after dusk. The colors flow continuously, worked out from the clock and the sun's height, so they follow the seasons and wherever you travel. The maps take the same sky at their usual brightness, so names stay readable: blue by day, warm at dawn and dusk, gray at night. Settings shows today's sky hour by hour, and when the sun rises and sets. Picking Sun asks Android for your approximate location (about 2 km), which stays on the phone; without it, the times come from your time zone.
 - **Layout**: Apps on top or Files on top.
 - **Home screen**, **Usage access**, **Atlas sign-in**, **Version and updates**.
 - **Quit**: hands the phone back to its own launcher (tap it twice). Opening Atlas from the apps makes it the Home screen again.
@@ -79,6 +80,7 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.4.0 (2026-11-20).** Sun, in Settings, Appearance: the colors follow the sky where you are, black at night, through dawn, sunrise, the day, sunset and dusk, flowing without steps. The maps follow it at their usual brightness. Uses the phone's approximate location, asked when you pick Sun.
 - **1.3.1 (2026-11-20).** One Search Google row, at the end. WhatsApp, Signal and Telegram are found on more phones: each opens straight in its app, also where the phone's contacts app or a second copy of WhatsApp takes the same rows.
 - **1.3.0 (2026-11-20).** Contacts in the search, between Apps and Files: under each name, a list of the apps that reach that person. Tap WhatsApp, Signal or Telegram to list Message, Call and Video call, or hold it to call; Phone calls at once, Messages starts a text, the name opens the contact. Google's suggestions are left out while a contact matches.
 - **1.2.0 (2026-11-15).** Google in the search bar: a Search Google row under the results, Google's suggestions as you type, and Enter searches Google when no app matches. Results open in the browser.

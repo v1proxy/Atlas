@@ -68,11 +68,12 @@ const savePref = (key, value) => fire("prefs.set", { key, value });
 // Android tells the page about the world through window.onLauncherEvent.
 window.onLauncherEvent = ev => {
   if (!ev) return;
-  if (ev.type === "home") { endSession(); return goHome(); }
+  if (ev.type === "home") { endSession(); skyPaint(true); return goHome(); }
   if (ev.type === "pause") return endSession();                       // Atlas went to the background
   if (ev.type === "apps") return loadApps().then(refreshScreen);
   if (ev.type === "pins") return loadPrefs().then(() => { if (dialOpen()) openDial(dialMode, true); });
-  if (ev.type === "resume") return refresh();
+  if (ev.type === "resume") { if (theme().mode === "sun") loadPlace(); return refresh(); }
+  if (ev.type === "place") return loadPlace();                        // a new place, or location allowed (or taken back)
   if (ev.type === "paired") return loadFiles().then(refreshScreen);
   if (ev.type === "contacts") { if (L.q.trim() && L.screen !== "apps") findContacts(L.q); return; }   // allowed (or taken back)
 };
@@ -269,13 +270,14 @@ function meta() {
   }
   $("#meta").innerHTML = `<b>${fmtN(n)}</b> apps` + (L.files ? ` · <b>${fmtN(L.files.total_files)}</b> files · <b>${fmtGB(L.files.total_gb)}</b>` : "");
 }
-// ---- color: one color, or a gradient of two, picked on a wheel ---------------------------------------------------
+// ---- color: one color, or a gradient of two, picked on a wheel; or the sky (Sun) -----------------------------------
 // A color is a hue (degrees) and a strength (OKLCH chroma); the four shades of the map come from it as in Atlas.
 const DEF_THEME = { mode: "solid", a: { h: 27, c: .17 }, b: { h: 295, c: .15 } };          // Atlas red; the second color for gradients
 const NAMED = { red: [27, .17], orange: [48, .15], amber: [78, .13], green: [150, .13], teal: [195, .11], blue: [255, .15], violet: [295, .15], graphite: [255, .02] };
 const themeFromTone = k => { const t = NAMED[k] || NAMED.red; return { mode: "solid", a: { h: t[0], c: t[1] }, b: { ...DEF_THEME.b } }; };
 const goodColor = x => x && isFinite(x.h) && isFinite(x.c) && x.c >= 0 && x.c <= .4;
-const validTheme = t => t && goodColor(t.a) && goodColor(t.b) ? { mode: t.mode === "gradient" ? "gradient" : "solid", a: { h: +t.a.h, c: +t.a.c }, b: { h: +t.b.h, c: +t.b.c }, ...(t.ivory ? { ivory: true } : {}) } : null;
+const MODES = ["solid", "gradient", "sun"];                           // Sun keeps the wheel's two colors for when you go back
+const validTheme = t => t && goodColor(t.a) && goodColor(t.b) ? { mode: MODES.includes(t.mode) ? t.mode : "solid", a: { h: +t.a.h, c: +t.a.c }, b: { h: +t.b.h, c: +t.b.c }, ...(t.ivory ? { ivory: true } : {}) } : null;
 const theme = () => L.theme || (L.theme = JSON.parse(JSON.stringify(DEF_THEME)));
 const okl = (l, x) => `oklch(${l} ${x.c.toFixed(3)} ${x.h.toFixed(1)})`;
 function midColor(A, B) { const dh = ((B.h - A.h + 540) % 360) - 180; return { h: (A.h + dh / 2 + 360) % 360, c: (A.c + B.c) / 2 }; }
@@ -286,15 +288,125 @@ function boxColors(t) {
   return [`linear-gradient(to bottom, ${okl(.63, t.a)}, ${okl(.58, M)})`, `linear-gradient(to bottom, ${okl(.58, M)}, ${okl(.53, t.b)})`];
 }
 function applyTheme() {
-  const t = theme(), r = document.documentElement.style, g = t.mode === "gradient";
+  const t = theme(), r = document.documentElement.style, g = t.mode === "gradient", sun = t.mode === "sun";
   document.body.classList.toggle("ivory", !!t.ivory);
+  document.body.classList.toggle("gradient", g);
+  document.body.classList.toggle("sun", sun);
+  if (sun) { if (!skyTimer) skyTimer = setInterval(() => skyPaint(false), SKY_MS); skyPaint(true); return; }
+  clearInterval(skyTimer); skyTimer = 0; skyNow = null; skySent = null;
   r.setProperty("--h", t.a.h.toFixed(1)); r.setProperty("--c", t.a.c.toFixed(3));
   const [top, bottom] = boxColors(t);
   r.setProperty("--top-bg", top); r.setProperty("--bottom-bg", bottom);
   r.setProperty("--dot", g ? `linear-gradient(135deg, ${okl(.63, t.a)} 50%, ${okl(.63, t.b)} 50%)` : okl(.63, t.a));
-  document.body.classList.toggle("gradient", g);
 }
-const saveTheme = () => savePref("theme", theme());                       // the app passes it on to Atlas in Files
+// The app passes the color on to Atlas in Files. In Sun mode Atlas gets the sky itself (skyFiles), as a gradient.
+function saveTheme() {
+  savePref("theme", theme());
+  if (theme().mode === "sun") { if (skyNow) skyFiles(skyNow, true); } else fire("files.theme", { theme: null });
+}
+
+// ---- Sun (1.4.0): the gradient follows the sky where the phone is ---------------------------------------------------
+// The sun's height comes from the clock and the phone's place (NOAA's solar formulas). Each height has a color for the
+// top of the screen (the sky overhead) and one for the bottom (the horizon): black at night; navy, violet and pink at
+// dawn; sunrise, gold, the blue of the day; warmer colors in the evening, back to black. The colors mix in OKLab, so the
+// day flows without steps, and stay at or under the maps' own brightness (OKLCH .62) so the white names stay readable.
+const RAD = Math.PI / 180;
+const NIGHT = [0, 0, 265];
+//                 sun's height, overhead [OKLCH],   horizon [OKLCH]
+const SKY_AM = [[-18, NIGHT, NIGHT], [-15, [.10, .025, 265], [.15, .04, 268]], [-12, [.15, .045, 264], [.24, .07, 270]],
+  [-9, [.20, .065, 263], [.31, .09, 276]], [-6, [.26, .085, 262], [.37, .10, 292]], [-3, [.33, .10, 260], [.46, .12, 335]],
+  [-.8, [.40, .11, 258], [.58, .15, 38]], [2, [.45, .12, 256], [.62, .15, 55]], [6, [.50, .13, 253], [.62, .12, 75]],
+  [11, [.52, .14, 251], [.61, .07, 228]], [18, [.52, .15, 253], [.62, .09, 236]], [30, [.51, .155, 256], [.62, .105, 238]],
+  [45, [.50, .16, 258], [.62, .11, 240]]].map(skyLab);
+const SKY_PM = [[-18, NIGHT, NIGHT], [-15, [.09, .025, 265], [.14, .04, 268]], [-12, [.14, .045, 265], [.22, .065, 272]],
+  [-9, [.19, .07, 268], [.29, .09, 284]], [-6, [.25, .09, 272], [.35, .12, 305]], [-3, [.31, .10, 268], [.44, .15, 355]],
+  [-.8, [.38, .11, 262], [.54, .18, 32]], [2, [.44, .12, 258], [.59, .17, 45]], [6, [.49, .13, 255], [.61, .14, 60]],
+  [11, [.52, .14, 251], [.61, .07, 228]], [18, [.52, .15, 253], [.62, .09, 236]], [30, [.51, .155, 256], [.62, .105, 238]],
+  [45, [.50, .16, 258], [.62, .11, 240]]].map(skyLab);
+function skyLab([e, z, h]) { return [e, lchLab(z), lchLab(h)]; }
+function lchLab([l, c, h]) { return [l, c * Math.cos(h * RAD), c * Math.sin(h * RAD)]; }
+const labMix = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f];
+const labDist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+const labHC = p => ({ h: +((Math.atan2(p[2], p[1]) / RAD + 360) % 360).toFixed(1), c: +Math.min(.4, Math.hypot(p[1], p[2])).toFixed(3) });
+function labRgb([l, a, b]) {
+  const L_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3, M_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3, S_ = (l - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const f = x => { x = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; return Math.round(255 * Math.min(1, Math.max(0, x))); };
+  return [f(4.0767416621 * L_ - 3.3077115913 * M_ + 0.2309699292 * S_), f(-1.2684380046 * L_ + 2.6097574011 * M_ - 0.3413193965 * S_), f(-0.0041960863 * L_ - 0.7034186147 * M_ + 1.7076147010 * S_)];
+}
+const rgbCss = p => `rgb(${labRgb(p).join(",")})`;
+// The sun's height above the horizon (degrees) and its hour angle (negative before noon) at a moment, from anywhere.
+function sunPos(ms, lat, lon) {
+  const T = (ms / DAY + 2440587.5 - 2451545) / 36525, L0 = ((280.46646 + T * (36000.76983 + T * 0.0003032)) % 360 + 360) % 360;
+  const M = 357.52911 + T * (35999.05029 - 0.0001537 * T), e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+  const C = Math.sin(M * RAD) * (1.914602 - T * (0.004817 + 0.000014 * T)) + Math.sin(2 * M * RAD) * (0.019993 - 0.000101 * T) + Math.sin(3 * M * RAD) * 0.000289;
+  const om = 125.04 - 1934.136 * T, lam = L0 + C - 0.00569 - 0.00478 * Math.sin(om * RAD);
+  const eps = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60 + 0.00256 * Math.cos(om * RAD);
+  const dec = Math.asin(Math.sin(eps * RAD) * Math.sin(lam * RAD)), y = Math.tan(eps * RAD / 2) ** 2;
+  const eot = 4 / RAD * (y * Math.sin(2 * L0 * RAD) - 2 * e * Math.sin(M * RAD) + 4 * e * y * Math.sin(M * RAD) * Math.cos(2 * L0 * RAD)
+    - 0.5 * y * y * Math.sin(4 * L0 * RAD) - 1.25 * e * e * Math.sin(2 * M * RAD));                   // minutes
+  const utc = (ms % DAY + DAY) % DAY / 60000, ha = ((utc + eot + 4 * lon) % 1440 + 1440) % 1440 / 4 - 180;
+  const cz = Math.sin(lat * RAD) * Math.sin(dec) + Math.cos(lat * RAD) * Math.cos(dec) * Math.cos(ha * RAD);
+  return { el: 90 - Math.acos(Math.max(-1, Math.min(1, cz))) / RAD, ha };
+}
+function skyKey(keys, e) {
+  if (e <= keys[0][0]) return [keys[0][1], keys[0][2]];
+  for (let i = 1; i < keys.length; i++) if (e <= keys[i][0]) {
+    const f = (e - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]);
+    return [labMix(keys[i - 1][1], keys[i][1], f), labMix(keys[i - 1][2], keys[i][2], f)];
+  }
+  const k = keys[keys.length - 1]; return [k[1], k[2]];
+}
+// The sky at a moment: the colors overhead (z) and at the horizon (h). The morning's and the evening's colors blend
+// near noon and midnight, where they are the same, so nothing jumps even where the sun stays low all day.
+function skyAt(ms, p) {
+  const s = sunPos(ms, p.lat, p.lon), w = Math.min(1, Math.max(0, .5 + Math.sin(s.ha * RAD)));
+  const am = skyKey(SKY_AM, s.el), pm = skyKey(SKY_PM, s.el);
+  return { el: s.el, ha: s.ha, z: labMix(am[0], pm[0], w), h: labMix(am[1], pm[1], w) };
+}
+const skyEase = f => Math.pow(Math.min(1, Math.max(0, f)), 1.6);      // the horizon's colors gather near the bottom, as outside
+const skyColor = (s, f) => labMix(s.z, s.h, skyEase(f));               // f: 0 at the top of the screen, 1 at the bottom
+function skyPhase(s) {
+  const am = s.ha < 0, e = s.el;
+  return e < -18 ? "night" : e < -12 ? (am ? "astronomical dawn" : "astronomical dusk") : e < -6 ? (am ? "nautical dawn" : "nautical dusk")
+    : e < -.833 ? "blue hour" : e < 3 ? (am ? "sunrise" : "sunset") : e < 10 ? "golden hour" : Math.abs(s.ha) < 18.75 ? "midday" : am ? "morning" : "afternoon";
+}
+// Where the phone is: Android's approximate location, kept by the app (Settings, Appearance, Sun asks for it). Until there
+// is one, a guess from the time zone: the longitude from its standard offset, the hemisphere from its summer time.
+function placeGuess() {
+  const y = new Date().getFullYear(), jan = new Date(y, 0, 1).getTimezoneOffset(), jul = new Date(y, 6, 1).getTimezoneOffset();
+  return { lat: jan > jul ? 40 : jan < jul ? -35 : 20, lon: -Math.max(jan, jul) / 4, guess: true };
+}
+const where = () => L.place || placeGuess();
+async function loadPlace(fresh) {
+  try {
+    const p = await native("place.get", { fresh: !!fresh }) || {};
+    L.placeOk = !!p.allowed; L.placeOn = p.on !== false;
+    L.place = typeof p.lat === "number" && typeof p.lon === "number" && isFinite(p.lat) && isFinite(p.lon) ? { lat: p.lat, lon: p.lon, at: +p.at || 0 } : null;
+  } catch (e) { /* the guess */ }
+  skyPaint(true); if (L.screen === "settings") paintLook();
+}
+// Six points of the sky, from the top of the upper box to the bottom of the lower one. The page sets them every 20 s,
+// aimed 20 s ahead, and the colors glide there (launcher.css): a slow, continuous film, not a picture every 20 s.
+const SKY_MS = 20000, SKY_AT = [0, .245, .49, .51, .755, 1];
+let skyTimer = 0, skyNow = null, skySent = null, skySentAt = 0;
+function skyPaint(jump) {
+  if (theme().mode !== "sun") return;
+  const s = skyNow = skyAt(Date.now() + (jump ? 0 : SKY_MS), where()), r = document.documentElement.style;
+  r.setProperty("--sky-t", jump ? ".9s" : SKY_MS + "ms");
+  SKY_AT.forEach((f, i) => r.setProperty("--s" + i, rgbCss(skyColor(s, f))));
+  const top = labHC(s.z); r.setProperty("--h", top.h.toFixed(1)); r.setProperty("--c", top.c.toFixed(3));
+  if (L.screen === "apps") $$("#map [data-tp]").forEach(el => tint(el, +el.dataset.tp));
+  if (L.screen === "settings") paintSun();
+  skyFiles(s, false);
+}
+// Atlas in Files gets the sky as a gradient between its two ends. Its page redraws for each change, so it gets one only
+// when the colors have moved enough to see, at most every 10 minutes (and the app hands it over while Files is hidden).
+function skyFiles(s, force) {
+  const now = Date.now(), moved = !skySent || Math.max(labDist(s.z, skySent.z), labDist(s.h, skySent.h)) > .03;
+  if (!force && (!moved || now - skySentAt < 600000)) return;
+  skySent = s; skySentAt = now;
+  fire("files.theme", { theme: { mode: "gradient", a: labHC(s.z), b: labHC(s.h), ...(theme().ivory ? { ivory: true } : {}) } });
+}
 // Holding the Settings circle swaps black and ivory: background, text, lines, the circle and its cross. The new scheme
 // grows out of the circle you held.
 function flipScheme(el) {
@@ -306,12 +418,20 @@ function flipScheme(el) {
   vt.ready.then(() => document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${R}px at ${x}px ${y}px)`] },
     { duration: 560, easing: "cubic-bezier(.4, 0, .2, 1)", pseudoElement: "::view-transition-new(root)" })).catch(() => {});
 }
+// Where a tile or dot sits (0 at the top, 1 at the bottom) gives it its color: along the gradient, or in Sun mode the
+// sky's color there at the maps' own brightness (gray at night, so the names stay readable).
 function tintAt(t) {
-  const th = theme(); if (th.mode !== "gradient") return null;
+  const th = theme();
+  if (th.mode === "sun") return skyNow ? labHC(skyColor(skyNow, t)) : null;
+  if (th.mode !== "gradient") return null;
   t = Math.min(1, Math.max(0, t)); const dh = ((th.b.h - th.a.h + 540) % 360) - 180;
   return { h: (th.a.h + dh * t + 360) % 360, c: th.a.c + (th.b.c - th.a.c) * t };
 }
-function tint(el, t) { const x = tintAt(t); if (x) { el.style.setProperty("--h", x.h.toFixed(1)); el.style.setProperty("--c", x.c.toFixed(3)); } }
+function tint(el, t) {
+  const x = tintAt(t); if (!x) return;
+  el.dataset.tp = t.toFixed(4);                                          // Sun mode tints it again as the sky moves
+  el.style.setProperty("--h", x.h.toFixed(1)); el.style.setProperty("--c", x.c.toFixed(3));
+}
 
 // ---- home: the two boxes -----------------------------------------------------------------------------
 function applyOrder() {
@@ -630,11 +750,12 @@ async function renderSettings() {
   const box = $("#settings");
   box.innerHTML = `<div class="set">
     <section id="s-look"><h3>Appearance</h3>
-      <div class="seg" id="o-mode"><button type="button" data-m="solid" aria-pressed="${t.mode !== "gradient"}">One color</button><button type="button" data-m="gradient" aria-pressed="${t.mode === "gradient"}">Gradient</button></div>
+      <div class="seg" id="o-mode"><button type="button" data-m="solid" aria-pressed="${t.mode === "solid"}">One color</button><button type="button" data-m="gradient" aria-pressed="${t.mode === "gradient"}">Gradient</button><button type="button" data-m="sun" aria-pressed="${t.mode === "sun"}">Sun</button></div>
       <div class="wheelrow"><div class="wheel" id="wheel"><canvas></canvas><span class="hd" data-k="a">1</span><span class="hd" data-k="b">2</span></div>
+        <div class="sunday" id="sunday" hidden><canvas aria-label="Today's sky, hour by hour"></canvas><i class="now"></i><div class="ticks">${[0, 25, 50, 75, 100].map(x => `<span style="left:${x}%"></span>`).join("")}</div></div>
         <div class="mh" id="mh" aria-hidden="true"><i class="t"></i><i class="b"></i><b></b></div></div>
       <p class="note" id="o-look"></p>
-      <div class="row"><button type="button" class="btn" id="o-reset">Back to red</button></div></section>
+      <div class="row"><button type="button" class="btn" id="o-place" hidden>Allow location</button><button type="button" class="btn" id="o-reset">Back to red</button></div></section>
     <section><h3>Layout</h3><div class="seg" id="o-order"><button type="button" data-o="apps-top" aria-pressed="${L.order !== "files-top"}">Apps on top</button><button type="button" data-o="files-top" aria-pressed="${L.order === "files-top"}">Files on top</button></div></section>
     <section><h3>Home screen</h3>${info.isDefault ? `<p class="note">Atlas is your Home screen.</p>`
       : `<p class="note">Atlas isn't your Home screen yet.</p><div class="row"><button type="button" class="btn primary" id="o-home">Make Atlas the Home screen</button></div>`}</section>
@@ -647,8 +768,15 @@ async function renderSettings() {
     <section><h3>Quit</h3><p class="note">Go back to the phone's own launcher. Atlas stays installed with everything you set: open it from your apps to come back.</p>
       <div class="row"><button type="button" class="btn quit" id="o-quit">Quit Atlas</button></div></section>
   </div>`;
+  sunDayKey = "";
   wheelControl($("#wheel"));
-  $$("#o-mode button").forEach(b => b.onclick = () => { theme().mode = b.dataset.m; setSeg("#o-mode", "m", b.dataset.m); applyTheme(); saveTheme(); paintLook(); });
+  // Sun: Android asks once for the phone's approximate location, right when you pick it.
+  $$("#o-mode button").forEach(b => b.onclick = () => {
+    const m = b.dataset.m; theme().mode = m; setSeg("#o-mode", "m", m);
+    applyTheme(); saveTheme(); paintLook();
+    if (m === "sun") { fire("place.allow", { auto: true }); loadPlace(true); }
+  });
+  $("#o-place").onclick = () => fire("place.allow");
   $("#o-reset").onclick = () => { L.theme = { ...JSON.parse(JSON.stringify(DEF_THEME)), ...(theme().ivory ? { ivory: true } : {}) }; setSeg("#o-mode", "m", "solid"); applyTheme(); saveTheme(); paintLook(); };
   $$("#o-order button").forEach(b => b.onclick = () => { L.order = b.dataset.o; savePref("order", L.order); applyOrder(); applyTheme(); setSeg("#o-order", "o", L.order); paintLook(); });
   if ($("#o-home")) $("#o-home").onclick = () => fire("home.request");
@@ -681,12 +809,7 @@ async function renderSettings() {
 // The wheel: hue around the circle, strength from the gray middle to the edge, at the lightness of Atlas's tiles.
 // Drag the handle (in a gradient, the nearer of the two) to change the color.
 const CMAX = 0.2;
-function oklchRgb(l, C, h) {
-  const a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
-  const L_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3, M_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3, S_ = (l - 0.0894841775 * a - 1.2914855480 * b) ** 3;
-  const f = x => { x = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; return Math.round(255 * Math.min(1, Math.max(0, x))); };
-  return [f(4.0767416621 * L_ - 3.3077115913 * M_ + 0.2309699292 * S_), f(-1.2684380046 * L_ + 2.6097574011 * M_ - 0.3413193965 * S_), f(-0.0041960863 * L_ - 0.7034186147 * M_ + 1.7076147010 * S_)];
-}
+const oklchRgb = (l, C, h) => labRgb(lchLab([l, C, h]));
 function wheelControl(el) {
   const cv = el.querySelector("canvas"), size = el.getBoundingClientRect().width || 220;
   const S = Math.round(size * Math.min(2, window.devicePixelRatio || 1));
@@ -721,6 +844,14 @@ function wheelControl(el) {
 }
 function paintLook() {
   const t = theme(), el = $("#wheel"); if (!el) return;
+  const sun = t.mode === "sun";
+  el.hidden = sun; $("#sunday").hidden = !sun; $("#o-place").hidden = !sun || !!L.placeOk;
+  if (sun) {
+    const mh = $("#mh");
+    mh.querySelector(".t").style.background = "linear-gradient(to bottom, var(--s0), var(--s1), var(--s2))";
+    mh.querySelector(".b").style.background = "linear-gradient(to bottom, var(--s3), var(--s4), var(--s5))";
+    return paintSun();
+  }
   const R = el.getBoundingClientRect().width / 2;
   for (const k of ["a", "b"]) {
     const h = el.querySelector(`.hd[data-k="${k}"]`), x = t[k], r = Math.min(1, x.c / CMAX) * R, ang = x.h * Math.PI / 180;
@@ -732,6 +863,49 @@ function paintLook() {
   mh.querySelector(".t").style.background = top; mh.querySelector(".b").style.background = bottom;
   const word = x => `hue ${Math.round(x.h)}°, strength ${Math.round(100 * x.c / CMAX)}%`;
   $("#o-look").textContent = t.mode === "gradient" ? `1: ${word(t.a)} · 2: ${word(t.b)}` : word(t.a);
+}
+// Settings, Sun: today's sky where you are, hour by hour, with a mark for now; when the sun rises and sets; what the
+// sky is doing now.
+let sunDayKey = "";
+function paintSun() {
+  const box = $("#sunday"); if (!box || box.hidden) return;
+  const p = where(), d0 = new Date(Date.now()); d0.setHours(0, 0, 0, 0);
+  const d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
+  const t0 = +d0, span = d1 - d0, cv = box.querySelector("canvas");
+  const key = [t0, p.lat.toFixed(2), p.lon.toFixed(2), cv.clientWidth].join(" ");
+  if (key !== sunDayKey && cv.clientWidth) {
+    sunDayKey = key;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr);
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext("2d"), img = ctx.createImageData(W, H), px = img.data, ev = [];
+    for (let y = 0; y < H; y++) ev.push(skyEase(y / Math.max(1, H - 1)));
+    for (let x = 0; x < W; x++) {
+      const s = skyAt(t0 + (x + .5) / W * span, p);
+      for (let y = 0; y < H; y++) { const c = labRgb(labMix(s.z, s.h, ev[y])), i = (y * W + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255; }
+    }
+    ctx.putImageData(img, 0, 0);
+    box.querySelectorAll(".ticks span").forEach((sp, i) => { sp.textContent = new Date(2000, 0, 1, (i * 6) % 24).toLocaleTimeString([], { hour: "numeric" }); });
+  }
+  box.querySelector(".now").style.left = (100 * (Date.now() - t0) / span).toFixed(2) + "%";
+  const { rise, set } = sunTimes(p, t0, span), now = skyAt(Date.now(), p), about = L.place ? "" : "about ";
+  const hm = t => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const day = rise != null && set != null ? `Sunrise ${about}${hm(rise)}, sunset ${about}${hm(set)}`
+    : rise != null ? `Sunrise ${about}${hm(rise)}` : set != null ? `Sunset ${about}${hm(set)}`
+    : now.el > 0 ? "The sun doesn't set today" : "The sun doesn't rise today";
+  const from = L.place ? " where you are" : !L.placeOk ? ", from your time zone until you allow location"
+    : !L.placeOn ? ", from your time zone until location is on in Android" : ", from your time zone while the phone finds where it is";
+  $("#o-look").textContent = `${day}${from}. Now: ${skyPhase(now)}.`;
+}
+// Today's sunrise and sunset: when the sun's top edge crosses the horizon (-0.833°), to the minute.
+function sunTimes(p, t0, span) {
+  let rise = null, set = null, prev = sunPos(t0, p.lat, p.lon).el + .833;
+  for (let m = 2; m * 60000 <= span; m += 2) {
+    const u = t0 + m * 60000, e = sunPos(u, p.lat, p.lon).el + .833, at = u - 120000 * e / (e - prev);
+    if (prev < 0 && e >= 0 && rise == null) rise = at;
+    else if (prev >= 0 && e < 0) set = at;
+    prev = e;
+  }
+  return { rise, set };
 }
 
 // ---- search ----------------------------------------------------------------------------------------------
@@ -1297,6 +1471,7 @@ window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() =
   applyTheme();
   await loadRules();
   await loadPrefs();
+  if (theme().mode === "sun") await loadPlace();
   applyOrder(); applyTheme();
   await Promise.allSettled([loadApps(), loadFiles()]);
   classifyAll();
