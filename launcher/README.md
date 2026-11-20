@@ -14,6 +14,7 @@ Atlas as an Android phone's Home screen. A frame like Atlas on top, then the scr
 - **Hold an app and drag it** onto a category to move it there, on the treemap, the tree or the list. Let go without moving to see its details instead.
 - **Tap the name on the left** to go back Home, from any screen, Files included. **Swiping right** goes back too, anywhere.
 - **The search** finds apps and files, and searches Google: under the results, **Search Google** and Google's own suggestions as you type (what you type goes to Google for them). **Enter** opens the first matching app, or searches Google when no app matches. Google's results open in the browser.
+- **Contacts in the search**, between Apps and Files: each person whose name matches, with the apps that reach them listed underneath (Phone, Messages, WhatsApp, Signal, Telegram, email and the like). An app that does one thing does it at a tap: Phone calls at once, Messages starts a text. **Tap** WhatsApp, Signal or Telegram to list **Message**, **Call** and **Video call** under it; **hold** it to call straight away. The name opens the contact, and the row after the list searches Google for that name. While what you type matches a contact, Google's suggestions are left out, so the name doesn't go to Google. Android asks once to let Atlas read your contacts, and the first call asks to let it make calls. Contacts are read on the phone and go nowhere.
 - **The empty circle beside the search** opens Settings. **Hold it** to swap black and ivory: the background turns ivory, and the text, the lines and the circle turn black.
 - Names only: no app icons anywhere, on the maps or on the dial.
 
@@ -78,6 +79,7 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.3.0 (2026-11-20).** Contacts in the search, between Apps and Files: under each name, a list of the apps that reach that person. Tap WhatsApp, Signal or Telegram to list Message, Call and Video call, or hold it to call; Phone calls at once, Messages starts a text, the name opens the contact, and a last row searches Google for the name. Google's suggestions are left out while a contact matches.
 - **1.2.0 (2026-11-15).** Google in the search bar: a Search Google row under the results, Google's suggestions as you type, and Enter searches Google when no app matches. Results open in the browser.
 - **1.1.1 (2026-11-15).** Settings: Check for an update turns into Update when there is one, instead of a second, black button; when there isn't, it says you have the latest version.
 - **1.1.0 (2026-11-15).** Files: a tap shows a file in the launcher, with Add to dial, Share, Open in app and Details on top; holding a file opens it in its app. Word, Excel and PowerPoint files get previews. Files arrive much faster from a server (see Atlas's own README), and the viewer says when a file is still coming or can't come instead of staying black.

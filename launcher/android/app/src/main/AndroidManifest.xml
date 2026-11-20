@@ -4,6 +4,9 @@
 
     <!-- Atlas on your server, reached through Tailscale -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 1.3.0: contacts in the search, and Phone under a contact calls at once (Android asks for both the first time) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <!-- Optional: how much each app is used, so the map can size apps by use. Granted by you in Android's settings. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <!-- Uninstall from an app's long press (Android always asks you to confirm) -->

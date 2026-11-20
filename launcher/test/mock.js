@@ -52,6 +52,19 @@
   };
   const thumb = p => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#5b6f7d"/><path d="M0 70 L30 44 L52 62 L70 48 L96 70 L96 96 L0 96Z" fill="#2f3d47"/><circle cx="70" cy="26" r="9" fill="#e9d7a6"/></svg>`);
   const log = window.MOCK_LOG = [];
+  const row = (id, app, what) => ({ kind: "data", id, mime: `vnd.android.cursor.item/vnd.${app}.${what}` });
+  const o = (label, k, act) => ({ label, k, act });
+  const phone = n => [{ name: "Phone", opts: [o("Call", "voice", { kind: "call", number: n })] }, { name: "Messages", opts: [o("Message", "chat", { kind: "sms", number: n })] }];
+  const mail = a => ({ name: "Gmail", opts: [o("Email", "mail", { kind: "email", address: a })] });
+  const CONTACTS = [
+    { id: 1, key: "k1", name: "Ada Lovelace", sub: "+1 555 0101 · mobile", apps: [...phone("+15550101"),
+      { name: "WhatsApp", opts: [o("Message", "chat", row(11, "com.whatsapp", "profile")), o("Call", "voice", row(12, "com.whatsapp", "voip.call")), o("Video call", "video", row(15, "com.whatsapp", "video.call"))] },
+      { name: "Signal", opts: [o("Message", "chat", row(13, "org.thoughtcrime.securesms", "contact")), o("Call", "voice", row(14, "org.thoughtcrime.securesms", "call"))] },
+      mail("ada@example.com")] },
+    { id: 2, key: "k2", name: "Alan Turing", sub: "+1 555 0102 · work", apps: [...phone("+15550102"),
+      { name: "Telegram", opts: [o("Message", "chat", row(21, "org.telegram.messenger.android", "profile")), o("Call", "voice", row(22, "org.telegram.messenger.android", "call"))] }] },
+    { id: 3, key: "k3", name: "Grace Hopper", sub: "grace@example.com", apps: [mail("grace@example.com")] },
+  ];
   async function handle(method, args) {
     log.push([method, args]);
     switch (method) {
@@ -73,6 +86,13 @@
       case "web.suggest": return ["weather today", "weather houston", "weather radar", "weather tomorrow", "weather this weekend", "weather 10 day"]
         .filter(x => x.startsWith(args.q.toLowerCase().slice(0, 3)));
       case "web.search": (window.MOCK_WEB = window.MOCK_WEB || []).push(args.q); return true;
+      case "contacts.search": {                                  // made-up people and numbers (555-01xx is fictional)
+        if (!window.MOCK_CONTACTS_OK) return { allowed: false, contacts: [] };
+        const q = args.q.toLowerCase();
+        return { allowed: true, contacts: CONTACTS.filter(c => c.name.toLowerCase().split(" ").some(w => w.startsWith(q))).slice(0, 5) };
+      }
+      case "contacts.allow": window.MOCK_CONTACTS_OK = true; setTimeout(() => window.onLauncherEvent({ type: "contacts" }), 50); return true;
+      case "contacts.open": (window.MOCK_REACH = window.MOCK_REACH || []).push(args); return true;
       default: return true;
     }
   }

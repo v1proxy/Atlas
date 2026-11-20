@@ -192,6 +192,9 @@ body.dragging .region { pointer-events: auto; }                       /* while a
 .results .r small { display: block; font: 11px var(--f-mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .results .r .num { font: 11px var(--f-mono); color: var(--dim); }
 .results .none { color: var(--dim); font-size: 13px; padding: 8px 0; }
+.results .r.in1 { margin-left: 18px; width: calc(100% - 18px); }     /* a contact's apps, under its name */
+.results .r.in2 { margin-left: 36px; width: calc(100% - 36px); }     /* an app's Message, Call, Video call */
+.results .r.press { background: color-mix(in oklab, var(--ink) 8%, var(--bg)); }
 
 /* ---- the sheet: details and options slide up from the bottom --------------------------------------------- */
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 82dvh; overflow: auto; background: var(--surface); border-top: 1px solid var(--line);

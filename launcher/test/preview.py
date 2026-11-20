@@ -125,6 +125,31 @@ with sync_playwright() as p:
     before = pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').length")
     pg.keyboard.press("Enter"); pg.wait_for_timeout(200)
     enter_app = [pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'launch').length") - before, len(pg.evaluate("window.MOCK_WEB || []"))]
+    # Contacts (1.3.0): between Apps and Files, the apps under each name; tap chats, hold calls; first, Android has to allow it.
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("ad", delay=30); pg.wait_for_timeout(500)
+    c_before = [pg.locator("#results h3").all_inner_texts(), pg.locator("#c-allow").count()]
+    pg.click("#c-allow"); pg.wait_for_timeout(500)
+    c_heads = pg.locator("#results h3").all_inner_texts()
+    c_names = pg.locator("[data-cn] .t").all_inner_texts()
+    c_apps = pg.locator(".r.in1").all_inner_texts()
+    pg.locator(".r.in1", has_text="WhatsApp").first.click(); pg.wait_for_timeout(200)       # opens Message, Call, Video call under it
+    c_opts = pg.locator(".r.in2").all_inner_texts()
+    c_rows = pg.locator("#results .r").evaluate_all("rs => rs.map(r => (r.classList.contains('in2') ? '    ' : r.classList.contains('in1') ? '  ' : '') + r.querySelector('.t').firstChild.textContent)")
+    pg.screenshot(path=os.path.join(SHOTS, "search-contacts.png"))
+    pg.locator(".r.in2", has_text="Call").first.click(); pg.wait_for_timeout(150)            # WhatsApp call
+    pg.locator(".r.in1", has_text="Phone").first.click(); pg.wait_for_timeout(150)           # one thing: calls at once
+    sb = pg.locator(".r.in1", has_text="Signal").first.bounding_box()                        # holding calls
+    pg.mouse.move(sb["x"] + 40, sb["y"] + sb["height"] / 2); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up(); pg.wait_for_timeout(200)
+    pg.locator("[data-cn]").first.click(); pg.wait_for_timeout(150)
+    pg.locator("[data-cg]").first.click(); pg.wait_for_timeout(150)
+    c_reach = pg.evaluate("(window.MOCK_REACH || []).map(a => a.kind + ':' + (a.mime ? a.mime.split('.').slice(-2).join('.') : a.number || a.id))") + pg.evaluate("(window.MOCK_WEB || []).slice(-1)")
+    n0 = pg.evaluate("window.MOCK_LOG.length")
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("ada", delay=30); pg.wait_for_timeout(700)
+    c_google = [pg.evaluate(f"window.MOCK_LOG.slice({n0}).filter(x => x[0] === 'web.suggest').length"), pg.locator("#web [data-g]").count()]
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("weather", delay=30); pg.wait_for_timeout(700)
+    c_google.append(pg.locator("#web [data-g]").count())
+    pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("chrome", delay=20); pg.wait_for_timeout(400)
+    c_none = pg.locator("#results h3").all_inner_texts()
     b.close()
 srv.shutdown()
 print("cross spinning while opening:", spinning, "| animations still running after 1.5 s:", still)
@@ -137,4 +162,8 @@ print("ivory after holding Settings:", ivory, "| title went home:", home_again, 
 print(json.dumps(states, indent=1))
 print("update, none:", upd_none, "| ready:", upd_ready, "| tapped Update:", upd_go)
 print("google rows:", rows, "| searched:", web, "| Enter with an app match: launched", enter_app[0], "web searches", enter_app[1])
+print("contacts: before allowing", c_before, "| sections", c_heads, "| names", c_names, "| apps", c_apps, "| WhatsApp opened:", c_opts)
+print("contacts, the rows:\n" + "\n".join(c_rows))
+print("contacts: WhatsApp > Call, Phone, hold Signal, the name, Search Google ->", c_reach, "| no contact matches 'chrome':", c_none)
+print("google suggestions asked for 'ad..' while it matched a contact:", c_google[0], "| Google rows then:", c_google[1], "| for 'weather':", c_google[2])
 print("errors:", errors or "none")

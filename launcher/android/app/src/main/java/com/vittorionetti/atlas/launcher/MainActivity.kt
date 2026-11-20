@@ -1,5 +1,6 @@
 package com.vittorionetti.atlas.launcher
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityOptions
@@ -68,6 +69,9 @@ class MainActivity : Activity() {
     private var pendingFilesJs: String? = null
     private var pairing = false
     private var usageWas = false
+    private var contactsWas = false
+    private val contacts by lazy { Contacts(this) }
+    private var pendingCall: String? = null
     private var latest: JSONObject? = null
     private var cfgServer = ""
     private var cfgPair = ""
@@ -77,6 +81,8 @@ class MainActivity : Activity() {
         const val ASSETS = "appassets.androidplatform.net"
         private val IVORY = Color.rgb(0xF2, 0xEB, 0xD8)             // the page's ivory (launcher.css)
         private const val REQ_HOME = 41
+        private const val REQ_CONTACTS = 42
+        private const val REQ_CALL = 43
     }
 
     // ---- start ---------------------------------------------------------------------------------------------
@@ -119,6 +125,7 @@ class MainActivity : Activity() {
         loadFiles()
 
         usageWas = apps.hasUsageAccess()
+        contactsWas = contacts.allowed()
         apps.listen { event("apps") }
 
         // Opened from the apps after Quit: be the Home screen again (Android asks once the page is ready).
@@ -211,6 +218,7 @@ class MainActivity : Activity() {
         super.onResume()
         val now = apps.hasUsageAccess()
         if (now != usageWas) { usageWas = now; apps.forgetUsage(); event("apps") } else event("resume")
+        if (contacts.allowed() != contactsWas) { contactsWas = !contactsWas; event("contacts") }   // allowed or taken back in Settings
     }
 
     override fun onPause() {
@@ -296,6 +304,9 @@ class MainActivity : Activity() {
         "pair" -> { pair(a.getString("code"), a.optString("server")); true }
         "web.search" -> { webSearch(a.getString("q")); true }
         "web.suggest" -> suggest(a.getString("q"))
+        "contacts.search" -> JSONObject().put("allowed", contacts.allowed()).put("contacts", contacts.search(a.optString("q")))
+        "contacts.allow" -> { askContacts(); true }
+        "contacts.open" -> { openContact(a); true }
         "update.check" -> checkUpdate()
         "update.install" -> { installUpdate(); true }
         "ready" -> {
@@ -367,6 +378,45 @@ class MainActivity : Activity() {
         runOnUiThread {
             try { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
             catch (e: ActivityNotFoundException) { Toast.makeText(this, "No app on this phone opens web pages.", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    // ---- contacts in the search (1.3.0): see Contacts.kt --------------------------------------------------------
+    /** Android asks once (and once more after a no); after that only the app's settings can allow it, so they open. */
+    private fun askContacts() = runOnUiThread {
+        if (!prefs.flag("askedContacts") || shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS)) {
+            prefs.setFlag("askedContacts", true)
+            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQ_CONTACTS)
+        } else startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+    }
+
+    private fun openContact(a: JSONObject) {
+        if (a.optString("kind") == "call") { placeCall(a.getString("number")); return }
+        val i = contacts.intent(a) ?: return
+        runOnUiThread {
+            try { startActivity(i) }
+            catch (e: ActivityNotFoundException) { Toast.makeText(this, "No app on this phone opens that.", Toast.LENGTH_SHORT).show() }
+            catch (e: SecurityException) { Toast.makeText(this, "That app said no: " + (e.message ?: "no reason given"), Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    /** Phone under a contact calls at once. The first time Android asks to allow calls; without that, the dialer opens. */
+    private fun placeCall(number: String) = runOnUiThread {
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) startCall(number, true)
+        else { pendingCall = number; requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), REQ_CALL) }
+    }
+
+    private fun startCall(number: String, direct: Boolean) {
+        try { startActivity(Intent(if (direct) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.fromParts("tel", number, null))) }
+        catch (e: Exception) { Toast.makeText(this, "Couldn't call: " + (e.message ?: "unknown error"), Toast.LENGTH_SHORT).show() }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        val ok = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        when (requestCode) {
+            REQ_CONTACTS -> { contactsWas = contacts.allowed(); event("contacts") }
+            REQ_CALL -> pendingCall?.let { n -> pendingCall = null; startCall(n, ok) }
         }
     }
 

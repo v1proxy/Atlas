@@ -74,6 +74,7 @@ window.onLauncherEvent = ev => {
   if (ev.type === "pins") return loadPrefs().then(() => { if (dialOpen()) openDial(dialMode, true); });
   if (ev.type === "resume") return refresh();
   if (ev.type === "paired") return loadFiles().then(refreshScreen);
+  if (ev.type === "contacts") { if (L.q.trim() && L.screen !== "apps") findContacts(L.q); return; }   // allowed (or taken back)
 };
 // Back: true when this page used it (closing the dial, a sheet, a search, zooming out, leaving the Apps map).
 window.launcherBack = () => {
@@ -742,7 +743,7 @@ function onSearch() {
   if (L.screen === "apps") { if (L.view === "treemap") applySearch(); else renderApps(); return; }
   const q = L.q.trim().toLowerCase();
   clearTimeout(findT);
-  suggest(L.q);
+  suggest(L.q); findContacts(L.q);
   if (!q) { hideResults(); return; }
   const apps = L.apps.filter(a => matchApp(a, q)).sort(byUse).slice(0, 12);
   showResults(apps, q.length >= 3 ? null : []);
@@ -754,24 +755,78 @@ function onSearch() {
     }, 300);
   }
 }
+let lastRes = null;
 function showResults(apps, files, err) {
   const R = $("#results"), top = $("#frame").getBoundingClientRect().bottom;
+  lastRes = [apps, files, err];
   R.style.top = top + "px"; R.hidden = false;
   R.innerHTML = `<h3>Apps</h3>` + (apps.length ? apps.map((a, i) => `<button type="button" class="r" data-a="${i}"><span class="t">${esc(a.label)}<small>${esc(a.category)} · ${esc(a.state)}</small></span><span class="num"></span></button>`).join("") : `<p class="none">No app matches.</p>`)
+    + contactsHtml()
     + `<h3>Files</h3>` + (files === null ? `<p class="none">Searching Atlas</p>` : err ? `<p class="none">${esc(err === "not signed in" ? "Sign in to Atlas to search files." : "Can't reach Atlas right now.")}</p>`
       : files.length ? files.slice(0, 40).map((f, i) => `<button type="button" class="r" data-f="${i}"><span class="t">${esc(f.name)}<small>${esc(dirName(f.path))}</small></span><span class="num">${fmtSize(f.size || 0)}</span></button>`).join("")
       : `<p class="none">${L.q.trim().length < 3 ? "Type three letters to search file names." : "No file matches."}</p>`)
     + `<div id="web"></div>`;
   R.querySelectorAll("[data-a]").forEach(b => { const a = apps[+b.dataset.a]; pressable(b, () => { launch(a, b); }, () => appSheet(a)); });
   R.querySelectorAll("[data-f]").forEach(b => { const f = files[+b.dataset.f]; pressable(b, () => openFile(f.path, false), () => fileSheet(f)); });
+  wireContacts(R);
   paintWeb();
 }
-function hideResults() { const R = $("#results"); R.hidden = true; R.innerHTML = ""; }
-function clearSearch() { $("#q").value = ""; L.q = ""; hideResults(); if (L.screen === "apps") { if (L.view === "treemap") applySearch(); else renderApps(); } }
+function hideResults() { const R = $("#results"); R.hidden = true; R.innerHTML = ""; lastRes = null; }
+function clearSearch() { $("#q").value = ""; L.q = ""; cts = null; hideResults(); if (L.screen === "apps") { if (L.view === "treemap") applySearch(); else renderApps(); } }
+
+// Contacts, between Apps and Files: the people whose names match, each with the apps that can reach them listed under
+// the name, read from the phone and never sent anywhere. An app that does one thing does it at a tap (Phone calls,
+// Messages starts a text, Email a mail); an app that can chat and call (WhatsApp, Signal, Telegram) lists Message, Call
+// and Video call under it at a tap, and holding it calls. The name opens the contact, and after each contact a row
+// searches Google for that name. Android asks once to allow it.
+// When what you type matches a contact, Google's suggestions are left out: the contact takes their place and the name
+// doesn't go to Google (its row still searches Google when you tap it).
+let cts = null, ctsSeq = 0, ctsT = 0, cOpen = null, ctsQ = "", ctsP = Promise.resolve(null);
+function findContacts(text) {
+  clearTimeout(ctsT); const my = ++ctsSeq, q = (text || "").trim();
+  ctsQ = q;
+  if (!q) { cts = null; ctsP = Promise.resolve(null); return; }
+  ctsP = new Promise(done => {
+    ctsT = setTimeout(async () => {
+      let r = null;
+      try { r = await native("contacts.search", { q }); } catch (e) { /* no contacts: the rest of the results stand */ }
+      done(r);
+      if (my !== ctsSeq || !r) return;
+      cts = r; cOpen = null; if (lastRes && !$("#results").hidden) showResults(...lastRes);
+    }, 60);
+  });
+}
+const isContact = r => !!(r && r.allowed && (r.contacts || []).length);
+function contactsHtml() {
+  if (!cts) return "";
+  if (!cts.allowed) return `<h3>Contacts</h3><button type="button" class="r" id="c-allow"><span class="t">Find contacts here too<small>Allow Atlas to read your contacts. They stay on the phone.</small></span><span class="num"></span></button>`;
+  const list = cts.contacts || []; if (!list.length) return "";
+  const row = (cls, data, text, sub, mark) => `<button type="button" class="r ${cls}" ${data}><span class="t">${esc(text)}${sub ? `<small>${esc(sub)}</small>` : ""}</span><span class="num">${mark || ""}</span></button>`;
+  return `<h3>Contacts</h3>` + list.map((c, i) => row("", `data-cn="${i}"`, c.name, c.sub)
+    + c.apps.map((a, j) => {
+      const open = cOpen === i + "/" + j, many = a.opts.length > 1;
+      return row("in1", `data-ci="${i}" data-cj="${j}"`, a.name, "", many ? (open ? "−" : "+") : "")
+        + (open ? a.opts.map((o, k) => row("in2", `data-ci="${i}" data-cj="${j}" data-ck="${k}"`, o.label)).join("") : "");
+    }).join("")
+    + row("", `data-cg="${i}"`, `Search Google for “${c.name}”`)).join("");
+}
+function wireContacts(R) {
+  const go = act => { if (!act) return; $("#q").blur(); fire("contacts.open", act); };
+  const again = () => { const st = R.scrollTop; showResults(...lastRes); R.scrollTop = st; };
+  const allow = R.querySelector("#c-allow"); if (allow) allow.onclick = () => fire("contacts.allow");
+  R.querySelectorAll("[data-cn]").forEach(b => { const c = cts.contacts[+b.dataset.cn]; b.onclick = () => go({ kind: "card", id: c.id, key: c.key }); });
+  R.querySelectorAll("[data-cg]").forEach(b => { const c = cts.contacts[+b.dataset.cg]; b.onclick = () => webSearch(c.name); });
+  R.querySelectorAll("[data-ci]").forEach(b => {
+    const at = b.dataset.ci + "/" + b.dataset.cj, a = cts.contacts[+b.dataset.ci].apps[+b.dataset.cj];
+    if (b.dataset.ck !== undefined) { b.onclick = () => go(a.opts[+b.dataset.ck].act); return; }       // Message, Call, Video call
+    const call = (a.opts.find(o => o.k === "voice") || a.opts[0]).act;
+    pressable(b, () => { if (a.opts.length === 1) return go(a.opts[0].act); cOpen = cOpen === at ? null : at; again(); }, () => go(call));
+  });
+}
 
 // Google, from the same bar: under the results a row searches Google for what you typed, with Google's own
-// suggestions below it as you type (what you type goes to Google for them); Enter searches Google when no app
-// matches. The results open in the browser.
+// suggestions below it as you type (what you type goes to Google for them, unless it matches a contact); Enter searches
+// Google when no app matches. The results open in the browser.
 let sugT = 0, sugSeq = 0, sugs = [];
 function webSearch(q) { q = (q || "").trim(); if (!q) return; $("#q").blur(); fire("web.search", { q }); }
 function suggest(text) {
@@ -779,6 +834,9 @@ function suggest(text) {
   if (q.length < 2) { sugs = []; return; }
   sugT = setTimeout(async () => {
     try {
+      const c = q === ctsQ ? await ctsP : null;
+      if (my !== sugSeq) return;
+      if (isContact(c)) { sugs = []; paintWeb(); return; }               // a contact's name doesn't go to Google
       const r = await native("web.suggest", { q });
       if (my !== sugSeq) return;
       sugs = (Array.isArray(r) ? r : []).filter(x => x && x.toLowerCase() !== q.toLowerCase()).slice(0, 5); paintWeb();
