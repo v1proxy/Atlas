@@ -65,6 +65,20 @@
       { name: "Telegram", opts: [o("Message", "chat", row(21, "org.telegram.messenger.android", "profile")), o("Call", "voice", row(22, "org.telegram.messenger.android", "call"))] }] },
     { id: 3, key: "k3", name: "Grace Hopper", sub: "grace@example.com", apps: [mail("grace@example.com")] },
   ];
+  // What the PC's Claude process tracker saves every 2 minutes (G:\\My Drive\\.atlas\\claude-processes.json): made up.
+  const claudeRows = () => ({ v: 1, every: 120, rows: [
+    { kind: "request", key: "q:job-1", project: "Harbor Library", title: "Massing model renders", desc: "Blender renders the views one at a time, on the CPU at low priority.", procs: 3, memPct: 35.2, cpu: 71.4, gpu: 0 },
+    { kind: "request", key: "q:job-2", project: "Harbor Library", title: "Compositing and encoding", desc: "Puts the frames together as they arrive, then encodes the film.", procs: 2, memPct: 0.6, cpu: 2.1, gpu: 4.5 },
+    { kind: "request", key: "q:dc-1", project: "Courses", title: "Command from a Claude chat", desc: "python export_slides.py --deck \"Lecture 04\"", procs: 1, memPct: 0.4, cpu: 0.8, gpu: 0 },
+    { kind: "request", key: "q:claude", project: "Claude itself", title: "Claude app and connectors", desc: "The Claude app and Cowork service, plus the connectors it runs on this PC: Desktop Commander, PDF viewer.", procs: 38, memPct: 4.6, cpu: 1.2, gpu: 0.5 },
+    { kind: "project", key: "j:Harbor Library", project: "Harbor Library", title: "Harbor Library", requests: 2, memPct: 35.8, cpu: 73.5, gpu: 4.5 },
+    { kind: "project", key: "j:Courses", project: "Courses", title: "Courses", requests: 1, memPct: 0.4, cpu: 0.8, gpu: 0 },
+    { kind: "project", key: "j:Kitchen renovation", project: "Kitchen renovation", title: "Kitchen renovation", requests: 0, memPct: 0, cpu: 0, gpu: 0 },
+    { kind: "project", key: "j:Claude itself", project: "Claude itself", title: "Claude itself", requests: 1, memPct: 4.6, cpu: 1.2, gpu: 0.5 },
+    { kind: "other", key: "o:apps", title: "Other apps", memPct: 41, cpu: 12, gpu: 6 },
+    { kind: "other", key: "o:free", title: "Free or idle", memPct: 18.4, cpu: 12.5, gpu: 89 },
+    { kind: "total", key: "total", procs: 44, requests: 3, gb: 6.5, pctRam: 41, memPct: 40.8, cpu: 75.5, gpu: 5, cpuPc: 87.5, gpuPc: 11,
+      ramGb: 16, freeGb: 2.9, freePct: 18, cpus: 16, host: "STUDIO-PC", at: new Date(Date.now() - 60000).toISOString() }] });
   async function handle(method, args) {
     log.push([method, args]);
     switch (method) {
@@ -75,6 +89,11 @@
       case "server": {
         if (args.path === "/map.json") return { status: 200, body: await (await fetch("demo-map.json")).text() };
         if (args.path === "/settings") return { status: 200, body: JSON.stringify({ tone: prefs.tone }) };
+        if (args.path.startsWith("/api/text?")) {                // Claude on the PC (1.5.0): the PC's numbers, made up
+          const p = new URLSearchParams(args.path.split("?")[1]).get("path") || "";
+          if (!/claude-processes\.json$/.test(p) || window.MOCK_CLAUDE === null) return { status: 404, body: JSON.stringify({ error: "not a file" }) };
+          return { status: 200, body: JSON.stringify({ text: JSON.stringify(window.MOCK_CLAUDE || claudeRows()), truncated: false }) };
+        }
         if (args.path.startsWith("/api/find")) {
           const q = new URLSearchParams(args.path.split("?")[1]).get("q").toLowerCase();
           return { status: 200, body: JSON.stringify({ results: files.filter(f => f.name.toLowerCase().includes(q)) }) };

@@ -79,6 +79,7 @@ window.onLauncherEvent = ev => {
 };
 // Back: true when this page used it (closing the dial, a sheet, a search, zooming out, leaving the Apps map).
 window.launcherBack = () => {
+  if (PR.open) { closeProcs(); return true; }
   if (dialOpen()) { closeDial(true); return true; }
   if (document.body.classList.contains("sheeton")) { closeSheet(); return true; }
   if (L.q) { clearSearch(); return true; }
@@ -395,6 +396,7 @@ function skyPaint(jump) {
   r.setProperty("--sky-t", jump ? ".9s" : SKY_MS + "ms");
   SKY_AT.forEach((f, i) => r.setProperty("--s" + i, rgbCss(skyColor(s, f))));
   const top = labHC(s.z); r.setProperty("--h", top.h.toFixed(1)); r.setProperty("--c", top.c.toFixed(3));
+  document.body.classList.toggle("skynight", s.z[0] < .2);
   if (L.screen === "apps") $$("#map [data-tp]").forEach(el => tint(el, +el.dataset.tp));
   if (L.screen === "settings") paintSun();
   skyFiles(s, false);
@@ -454,7 +456,7 @@ function show(screen) {
   $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
   $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
   $("#q").placeholder = screen === "apps" ? "Find an app, or search Google" : "Find an app or file, or search Google";
-  closeSheet(); hideResults(); closeDial();
+  closeSheet(); hideResults(); closeDial(); closeProcs(true);
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
   else if (screen === "settings") renderSettings();
   else renderHome();
@@ -1456,6 +1458,151 @@ function moveApp(a, state, cat) {
   document.addEventListener("touchcancel", () => { s = null; }, { passive: true });
 })();
 
+// ---- Claude on the PC (1.5.0): swipe up on Home for what Claude is running on the PC, swipe down to put it away -------
+// The PC saves the Claude process tracker's numbers every 2 minutes as claude-processes.json in Atlas's state folder in
+// the cloud drive; the page reads that file through Atlas like any other file. Five tiles (processes, memory, CPU, GPU,
+// free memory), a ring of who uses what (CPU, GPU or memory), and the projects with their requests.
+const PROCS_FILE = "G:\\My Drive\\.atlas\\claude-processes.json";
+const PR = { open: false, data: null, err: "", metric: "cpu", timer: 0, seq: 0, hideT: 0 };
+const PR_TONES = ["var(--r3)", "var(--r2)", "var(--r4)", "var(--r1)", "var(--r5)", "var(--r0)"];
+const prNum = (v, d = 1) => v == null || v === "" || !isFinite(+v) ? "\u2013" : (+v).toLocaleString("en-US", { maximumFractionDigits: d });
+const prPct = v => v == null || v === "" || !isFinite(+v) ? "\u2013" : prNum(v) + "%";
+function openProcs() {
+  const p = $("#procs");
+  clearTimeout(PR.hideT);
+  if (p.hidden) { p.classList.remove("anim"); p.style.transform = "translateY(100%)"; p.hidden = false; void p.offsetHeight; }
+  p.classList.add("anim"); p.style.transform = "translateY(0px)";
+  if (!PR.open) { PR.open = true; haptic("tick"); $("#p-body").scrollTop = 0; }
+  loadProcs(); clearInterval(PR.timer); PR.timer = setInterval(loadProcs, 30000);
+}
+function closeProcs(now) {
+  const p = $("#procs"); if (!p) return;
+  clearInterval(PR.timer); PR.timer = 0; PR.open = false; clearTimeout(PR.hideT);
+  if (now || p.hidden || reduced()) { p.classList.remove("anim"); p.style.transform = ""; p.hidden = true; return; }
+  p.classList.add("anim"); p.style.transform = "translateY(100%)";
+  PR.hideT = setTimeout(() => { if (!PR.open) { p.hidden = true; p.classList.remove("anim"); p.style.transform = ""; } }, 280);
+}
+async function loadProcs() {
+  const seq = ++PR.seq;
+  try {
+    const r = await server("/api/text?path=" + encodeURIComponent(PROCS_FILE));
+    const d = JSON.parse(r && r.text || "{}"), rows = Array.isArray(d.rows) ? d.rows : [];
+    if (!rows.some(x => x && x.kind === "total")) throw new Error("empty");
+    if (seq !== PR.seq) return;
+    PR.data = { rows, every: +d.every || 120 }; PR.err = "";
+  } catch (e) {
+    if (seq !== PR.seq) return;
+    const m = e && e.message || "";
+    PR.err = m === "not signed in" ? "Not signed in to Atlas yet: tap Files to sign in."
+      : m === "can't reach Atlas" || /^Failed|network/i.test(m) ? "Can't reach Atlas right now. Is Tailscale on?"
+      : "No numbers from the PC yet. It saves them every 2 minutes while it's on.";
+  }
+  renderProcs();
+}
+function renderProcs() {
+  const rows = PR.data && PR.data.rows, t = rows && rows.find(x => x.kind === "total");
+  $("#p-empty").hidden = !!t; $("#p-main").hidden = !t;
+  if (!t) { $("#p-empty").textContent = PR.err || "Asking Atlas"; $("#p-meta").textContent = "Asking Atlas"; return; }
+  const at = Date.parse(t.at), mins = isFinite(at) ? Math.max(0, Math.round((Date.now() - at) / 60000)) : null;
+  const old = mins != null && mins > Math.max(6, 3 * PR.data.every / 60);
+  const when = mins == null ? "" : mins < 1 ? "Updated just now" : mins < 60 ? `Updated ${mins} min ago`
+    : "Updated " + new Date(at).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+  $("#p-meta").innerHTML = `<b>${esc(t.host || "Your PC")}</b> · ${esc(when)}` + (old ? ` · <span class="warn">the PC may be asleep or off</span>` : "")
+    + (PR.err ? ` · <span class="warn">${esc(PR.err)}</span>` : "");
+  const n = +t.requests || 0;
+  const tiles = [["Claude processes", prNum(t.procs, 0), `${prNum(n, 0)} request${n === 1 ? "" : "s"} and the Claude app`],
+    ["Memory used by Claude", prNum(t.gb) + " GB", `${prNum(t.pctRam, 0)}% of ${prNum(t.ramGb)} GB`],
+    ["CPU used by Claude", prPct(t.cpu), `of all ${prNum(t.cpus, 0)} cores`],
+    ["GPU used by Claude", prPct(t.gpu), `PC total ${prPct(t.gpuPc)}`],
+    ["Free memory on the PC", prNum(t.freeGb) + " GB", `${prNum(t.freePct, 0)}% of RAM is free`]];
+  $("#p-tiles").innerHTML = tiles.map(([k, v, s]) => `<div class="ptile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  drawRing();
+  const rank = p => p.project === "Claude itself" ? 2 : p.project === "Not sorted yet" ? 1 : 0;
+  const projects = rows.filter(r => r.kind === "project" && +r.requests > 0).sort((a, b) => rank(a) - rank(b) || (+b.memPct || 0) - (+a.memPct || 0));
+  const cells = r => `<span class="num">${esc(prPct(r.memPct))}</span><span class="num">${esc(prPct(r.cpu))}</span><span class="num">${esc(prPct(r.gpu))}</span>`;
+  $("#p-list").innerHTML = `<div class="prow phd"><span>Request</span><span class="num">Memory</span><span class="num">CPU</span><span class="num">GPU</span></div>`
+    + (projects.length ? projects.map(p => `<div class="prow pj"><span class="t">${esc(p.title || p.project)}</span>${cells(p)}</div>`
+      + rows.filter(r => r.kind === "request" && r.project === p.project).sort((a, b) => (+b.memPct || 0) - (+a.memPct || 0) || (+b.cpu || 0) - (+a.cpu || 0))
+        .map(r => `<div class="prow rq"><span class="t">${esc(r.title)}${r.desc ? `<small>${esc(r.desc)}</small>` : ""}</span>${cells(r)}</div>`).join("")).join("")
+      : `<p class="pnone">Nothing from Claude is running.</p>`);
+  const idle = rows.filter(r => r.kind === "project" && +r.requests === 0).map(r => r.project);
+  $("#p-idle").hidden = !idle.length; $("#p-idle").textContent = idle.length ? `Nothing running in ${idle.join(", ")}.` : "";
+}
+// A slice of the ring, from angle a0 to a1 (radians, clockwise from the top), between radii r0 and r1.
+function ringArc(c, r0, r1, a0, a1) {
+  if (a1 - a0 >= 2 * Math.PI - 1e-6) return ringArc(c, r0, r1, a0, a0 + Math.PI) + " " + ringArc(c, r0, r1, a0 + Math.PI, a1);
+  const pt = (r, a) => `${(c + r * Math.sin(a)).toFixed(2)} ${(c - r * Math.cos(a)).toFixed(2)}`, big = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${pt(r1, a0)} A${r1} ${r1} 0 ${big} 1 ${pt(r1, a1)} L${pt(r0, a1)} A${r0} ${r0} 0 ${big} 0 ${pt(r0, a0)} Z`;
+}
+function drawRing() {
+  const box = $("#p-ring"), rows = PR.data && PR.data.rows; if (!box || !rows) return;
+  const k = PR.metric, label = k === "memPct" ? "Memory" : k.toUpperCase(), t = rows.find(x => x.kind === "total");
+  const req = rows.filter(x => x.kind === "request");
+  // each request keeps its color when the choice changes; the order follows the value shown
+  const tone = new Map(req.slice().sort((a, b) => (+b.memPct || 0) - (+a.memPct || 0) || String(a.key).localeCompare(String(b.key))).map((x, i) => [x.key, PR_TONES[i % PR_TONES.length]]));
+  const items = req.map(x => ({ key: x.key, name: x.title, v: +x[k] || 0, color: tone.get(x.key) })).sort((a, b) => b.v - a.v);
+  const other = rows.find(x => x.key === "o:apps"), free = rows.find(x => x.key === "o:free");
+  if (other) items.push({ name: "Other apps", v: +other[k] || 0, hatch: true, muted: true });
+  if (free) items.push({ name: k === "memPct" ? "Free" : "Idle", v: +free[k] || 0, color: "var(--surface-2)", edge: true, muted: true });
+  const W = Math.max(180, Math.min(280, (box.clientWidth || 320) - 16)), c = W / 2, R = c - 2, r0 = R * .64;
+  const all = items.reduce((s, d) => s + Math.max(0, d.v), 0) || 1;
+  let a = 0, paths = "";
+  for (const d of items) {
+    if (d.v <= 0) continue;
+    const a1 = a + d.v / all * 2 * Math.PI;
+    paths += `<path d="${ringArc(c, r0, R, a, a1)}" style="fill:${d.hatch ? "url(#p-hatch)" : d.color};stroke:${d.edge ? "var(--line)" : "var(--bg)"};stroke-width:1"/>`;
+    a = a1;
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${W}" width="${W}" height="${W}" role="img" aria-label="${esc(label + " use: " + items.map(d => d.name + " " + prPct(d.v)).join(", "))}">`
+    + `<defs><pattern id="p-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" style="fill:var(--bg)"/><rect width="1.6" height="5" style="fill:var(--dim)"/></pattern></defs>`
+    + paths + `<circle cx="${c}" cy="${c}" r="${(r0 - 7).toFixed(1)}" style="fill:none;stroke:var(--ink);stroke-width:1"/>`
+    + `<text x="${c}" y="${(c - R * .2).toFixed(1)}" class="rk">CLAUDE</text>`
+    + `<text x="${c}" y="${(c + R * .1).toFixed(1)}" class="rv" style="font-size:${Math.round(R * .26)}px">${esc(prPct(t && t[k]))}</text>`
+    + `<text x="${c}" y="${(c + R * .1 + 16).toFixed(1)}" class="rk">OF ${esc(label.toUpperCase())}</text></svg>`;
+  $("#p-legend").innerHTML = items.map(d => `<li${d.muted ? ' class="muted"' : ""}><i class="sw${d.hatch ? " hatch" : ""}${d.edge ? " edge" : ""}"${d.hatch ? "" : ` style="background:${d.color}"`}></i>`
+    + `<span class="nm">${esc(d.name)}</span><span class="vl">${esc(prPct(d.v))}</span></li>`).join("");
+}
+$$("#p-metric button").forEach(b => b.onclick = () => { PR.metric = b.dataset.k; setSeg("#p-metric", "k", PR.metric); haptic("tick"); drawRing(); });
+$("#p-grab").onclick = () => closeProcs();
+// The swipes: up on Home pulls the panel up with the finger, down on the panel (scrolled to the top) pulls it away.
+// Let go past about a fifth of the screen, or with a flick, and it goes the rest of the way; otherwise it springs back.
+(function swipeProcs() {
+  const panel = $("#procs"), body = $("#p-body");
+  let g = null;
+  document.addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0], el = e.target.closest ? e.target : null;
+    if (!el) return;
+    if (!PR.open) {
+      if (L.screen !== "home" || L.q || dialOpen() || document.body.classList.contains("sheeton") || !el.closest("#home") || el.closest("#hub")) return;
+      g = { up: true, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+    } else if (el.closest("#procs") && body.scrollTop <= 0) g = { up: false, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on) {
+      if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) { g = null; return; }   // sideways: Back, or a map
+      if (Math.abs(dy) < 10) return;
+      if (g.up ? dy > 0 : dy < 0 || body.scrollTop > 0) { g = null; return; }      // the other way: the page's own
+      g.on = true; g.h = innerHeight; panel.classList.remove("anim"); clearTimeout(PR.hideT);
+      if (g.up) { panel.style.transform = `translateY(${g.h}px)`; panel.hidden = false; if (!PR.data) loadProcs(); }
+    }
+    e.preventDefault();
+    panel.style.transform = `translateY(${Math.max(0, g.up ? g.h + dy : dy)}px)`;
+  }, { passive: false });
+  const end = (e, cancel) => {
+    const s = g; g = null;
+    if (!s || !s.on) return;
+    const c = e.changedTouches && e.changedTouches[0], dy = c ? c.clientY - s.y : 0, v = dy / Math.max(1, Date.now() - s.at);
+    const go = !cancel && (s.up ? (-dy > s.h * .2 || v < -.45) : (dy > s.h * .2 || v > .45));
+    if (s.up === go) openProcs(); else closeProcs();
+  };
+  document.addEventListener("touchend", e => end(e, false), { passive: true });
+  document.addEventListener("touchcancel", e => end(e, true), { passive: true });
+})();
+
 // ---- wiring --------------------------------------------------------------------------------------------
 $("#box-apps").onclick = openApps;
 $("#box-files").onclick = openFilesView;
@@ -1465,7 +1612,7 @@ $$("#views button").forEach(b => b.onclick = () => { L.view = b.dataset.v; L.tz 
 $$("#metric button").forEach(b => b.onclick = () => { L.metric = b.dataset.m; resetMZ(); setSeg("#metric", "m", L.metric); savePref("metric", L.metric); renderApps(); });
 pressable($("#tonebtn"), () => show("settings"), () => flipScheme($("#tonebtn")));   // the circle by the search: Settings; hold: black or ivory
 let rt = 0;
-window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) placeDial(); if (L.screen !== "settings") refreshScreen(); }, 120); });
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) placeDial(); if (L.screen !== "settings") refreshScreen(); if (PR.open) renderProcs(); }, 120); });
 
 (async function start() {
   applyTheme();

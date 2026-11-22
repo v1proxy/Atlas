@@ -30,6 +30,18 @@
 
 <main id="apps" aria-label="Apps" hidden><div id="map" role="application" aria-label="Map of every app"></div></main>
 <main id="settings" aria-label="Settings" hidden></main>
+<section class="procs" id="procs" aria-label="Claude on your PC" hidden>
+  <div class="phead"><button type="button" class="pgrab" id="p-grab" aria-label="Put away"></button><h2>Claude</h2><div class="meta" id="p-meta">Asking Atlas</div></div>
+  <div class="pbody" id="p-body">
+    <p class="pnone" id="p-empty">Asking Atlas</p>
+    <div class="pmain" id="p-main" hidden>
+      <div class="ptiles" id="p-tiles"></div>
+      <section class="psec"><div class="psh"><h3>Usage</h3><div class="seg" id="p-metric" role="group" aria-label="Show"><button type="button" data-k="cpu" aria-pressed="true">CPU</button><button type="button" data-k="gpu" aria-pressed="false">GPU</button><button type="button" data-k="memPct" aria-pressed="false">Memory</button></div></div>
+        <div class="pring" id="p-ring"></div><ul class="plegend" id="p-legend"></ul></section>
+      <section class="psec"><div class="psh"><h3>Projects and requests</h3></div><div class="plist" id="p-list"></div><p class="pidle" id="p-idle" hidden></p></section>
+    </div>
+  </div>
+</section>
 
 <div class="dial" id="dial" hidden></div>
 <div class="results" id="results" hidden></div>

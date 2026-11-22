@@ -268,3 +268,53 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .mh::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1px; margin-top: -.5px; background: var(--ink); }
 .mh b { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--bg); border: 1px solid var(--ink); box-shadow: 0 0 0 2px var(--bg); }
 .btn.quit { border-color: #C8362F; color: #FAC4C6; }
+
+/* ---- Claude on the PC (1.5.0): swipe up on Home, swipe down to put it away ---------------------------------------------- */
+/* The panel comes up over the whole screen and follows the finger (launcher.js). Its tiles are the boxes' color, or the
+   sky in Sun mode (overhead at the top of each tile, the horizon at its bottom); the ring takes the four shades. */
+.procs { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: grid; grid-template-rows: auto minmax(0, 1fr); transform: translateY(100%); will-change: transform;
+  --r0: oklch(.36 calc(var(--c) * .65) var(--h)); --r5: oklch(.82 calc(var(--c) * .5) var(--h)); }
+.procs.anim { transition: transform .26s cubic-bezier(.2, .8, .2, 1); }
+.phead { position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 12px 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.phead h2 { font: 300 22px/1 var(--f-body); margin: 0; white-space: nowrap; }
+.phead .warn { color: var(--warn); }
+.pgrab { position: absolute; left: 50%; top: 0; width: 64px; height: 16px; margin-left: -32px; padding: 0; border: 0; background: none; cursor: pointer; }
+.pgrab::after { content: ""; position: absolute; left: 16px; right: 16px; top: 7px; height: 1px; background: var(--ink); }
+.pbody { overflow: auto; overscroll-behavior: contain; padding: 12px 8px calc(20px + env(safe-area-inset-bottom, 0px)); }
+.pmain { display: grid; gap: 15px; align-content: start; }
+.pnone { color: var(--dim); font-size: 13px; margin: 8px 4px; }
+.ptiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; container-type: inline-size; }
+@container (max-width: 520px) { .ptile:first-child { grid-column: 1 / -1; min-height: 0; } }
+.ptile { background: var(--r2); color: var(--box-ink); padding: 12px 14px 14px; min-height: 128px; display: flex; flex-direction: column; min-width: 0; }
+body.sun .ptile { background: linear-gradient(to bottom, var(--s0) 0%, var(--s1) 24.5%, var(--s2) 49%, var(--s3) 51%, var(--s4) 75.5%, var(--s5) 100%); }
+body.sun.skynight .ptile { box-shadow: inset 0 0 0 1px var(--line); }        /* at night the sky is black, like the page */
+.ptile .k { font: 400 11px/1.25 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; opacity: .9; }
+.ptile .v { font: 300 40px/1.05 var(--f-body); letter-spacing: -.01em; margin-top: auto; padding-top: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ptile .s { font: 12px/1.45 var(--f-mono); opacity: .85; margin-top: 4px; }
+.psec { border-top: 1px solid var(--line); padding: 10px 4px 0; }
+.psh { display: flex; align-items: center; gap: 10px; min-height: var(--ctl); margin-bottom: 8px; }
+.psh h3 { flex: 1 1 auto; font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0; }
+.pring { display: grid; place-items: center; min-height: 180px; }
+.pring svg { display: block; overflow: visible; }
+.pring text { text-anchor: middle; fill: var(--ink); font-family: var(--f-body); }
+.pring text.rk { font: 10px var(--f-mono); letter-spacing: .05em; fill: var(--dim); }
+.pring text.rv { font-weight: 300; }
+.plegend { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+.plegend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; line-height: 1.3; }
+.plegend .sw { width: 10px; height: 10px; }
+.plegend .sw.hatch { background: repeating-linear-gradient(135deg, var(--dim) 0 1.5px, transparent 1.5px 4px); }
+.plegend .sw.edge { box-shadow: inset 0 0 0 1px var(--line); }
+.plegend .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plegend .vl { font: 12px var(--f-mono); font-variant-numeric: tabular-nums; }
+.plegend li.muted .nm { color: var(--dim); }
+.plist { display: grid; }
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) 54px 48px 42px; gap: 8px; align-items: start; padding: 7px 4px; }
+.prow .num { text-align: right; font: 12px/1.6 var(--f-mono); font-variant-numeric: tabular-nums; }
+.prow.phd { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); border-bottom: 1px solid var(--line); padding-top: 0; }
+.prow.phd .num { font: inherit; }
+.prow.pj { font: 300 17px/1.3 var(--f-body); border-bottom: 1px solid var(--line); padding-top: 14px; }
+.prow.rq { font-size: 14px; padding-left: 16px; }
+.prow .t { min-width: 0; overflow-wrap: anywhere; }
+.prow small { display: block; font-size: 12px; line-height: 1.4; color: var(--dim); margin-top: 2px; }
+.pidle { font: 11px/1.5 var(--f-mono); color: var(--dim); margin: 14px 4px 0; }
+@media (prefers-reduced-motion: reduce) { .procs.anim { transition: none; } }

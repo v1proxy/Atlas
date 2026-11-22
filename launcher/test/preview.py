@@ -37,6 +37,17 @@ srv = http.server.ThreadingHTTPServer(("127.0.0.1", 8811), functools.partial(htt
 srv.RequestHandlerClass.log_message = lambda *a: None
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
+def swipe(page, y0, y1, x=206, ms=200, sel="#home"):
+    """A one-finger swipe made of touch events, as on the phone (Chromium here has no touch-drag of its own)."""
+    page.evaluate("""([x, y0, y1, ms, sel]) => new Promise(done => {
+        const el = document.elementFromPoint(x, y0) || document.querySelector(sel), n = 8;
+        const T = y => new Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+        const ev = (type, y, on) => el.dispatchEvent(new TouchEvent(type, { touches: on ? [T(y)] : [], changedTouches: [T(y)], bubbles: true, cancelable: true }));
+        ev('touchstart', y0, true); let i = 0;
+        const tick = () => { i++; const y = y0 + (y1 - y0) * i / n; ev('touchmove', y, true); if (i < n) setTimeout(tick, ms / n); else { ev('touchend', y, false); done(); } };
+        setTimeout(tick, ms / n); })""", [x, y0, y1, ms, sel])
+
+
 errors = []
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -150,6 +161,28 @@ with sync_playwright() as p:
     c_google.append(pg.locator("#web [data-g]").count())
     pg.fill("#q", ""); pg.click("#q"); pg.keyboard.type("chrome", delay=20); pg.wait_for_timeout(400)
     c_none = pg.locator("#results h3").all_inner_texts()
+    # Claude on the PC (1.5.0): swipe up on Home brings the panel up with the finger; a short pull springs back; swipe
+    # down, or Back, puts it away. The tiles, the ring (CPU, GPU or memory) and the projects come from the PC's file.
+    pg.click("#title"); pg.wait_for_timeout(300)
+    p_short = (swipe(pg, 700, 650), pg.wait_for_timeout(500), pg.evaluate("[PR.open, document.querySelector('#procs').hidden, L.screen]"))[2]
+    swipe(pg, 760, 260); pg.wait_for_timeout(700)
+    p_open = pg.evaluate("""[PR.open, L.screen, document.querySelectorAll('#p-tiles .ptile').length, document.querySelectorAll('#p-ring path').length,
+        document.querySelectorAll('#p-list .pj').length, document.querySelectorAll('#p-list .rq').length, document.querySelector('#p-meta').textContent,
+        document.querySelector('#p-idle').textContent]""")
+    pg.screenshot(path=os.path.join(SHOTS, "8-claude.png"))
+    pg.evaluate("document.querySelector('#p-body').scrollTop = 9999"); pg.wait_for_timeout(200); pg.screenshot(path=os.path.join(SHOTS, "8b-claude-list.png"))
+    pg.evaluate("document.querySelector('#p-body').scrollTop = 0")
+    pg.click('#p-metric button[data-k="memPct"]'); pg.wait_for_timeout(200)
+    p_mem = pg.evaluate("[...document.querySelectorAll('#p-legend li')].map(li => li.textContent)")
+    pg.screenshot(path=os.path.join(SHOTS, "8c-claude-memory.png"))
+    swipe(pg, 220, 760, sel="#procs"); pg.wait_for_timeout(600)
+    p_down = pg.evaluate("[PR.open, document.querySelector('#procs').hidden, L.screen]")
+    swipe(pg, 760, 260); pg.wait_for_timeout(600)
+    p_back = [pg.evaluate("window.launcherBack()")]; pg.wait_for_timeout(600)
+    p_back += pg.evaluate("[PR.open, document.querySelector('#procs').hidden]")
+    pg.evaluate("window.MOCK_CLAUDE = null"); swipe(pg, 760, 260); pg.wait_for_timeout(700)
+    p_none = pg.evaluate("[document.querySelector('#p-meta').textContent.includes('No numbers'), document.querySelector('#p-main').hidden]")
+    pg.evaluate("window.MOCK_CLAUDE = undefined; window.launcherBack()"); pg.wait_for_timeout(500)
     # Sun (1.4.0): picking Sun asks for the phone's place (the stand-in answers Lisbon); the boxes follow the sky there.
     # The clock is frozen at moments of 2026-11-20 in Lisbon's time; the colors glide for 0.9 s to each new moment.
     sx = b.new_context(viewport={"width": 412, "height": 915}, device_scale_factor=2, has_touch=True, is_mobile=True,
@@ -191,6 +224,14 @@ with sync_playwright() as p:
     sp.evaluate(f"() => {{ window.__T = {day['d0'] + 2 * 3600e3}; skyPaint(true); }}"); sp.wait_for_timeout(300)
     s_tiles_night = sp.evaluate("[...document.querySelectorAll('#map .tile')].map(t => +t.style.getPropertyValue('--c')).reduce((a, b) => Math.max(a, b), 0)")
     sp.screenshot(path=os.path.join(SHOTS, "sun-apps-night.png"))
+    sp.click("#title"); sp.wait_for_timeout(300)
+    sp.evaluate(f"() => {{ window.__T = {day['noon']}; skyPaint(true); }}"); swipe(sp, 760, 260); sp.wait_for_timeout(1200)
+    sp.screenshot(path=os.path.join(SHOTS, "sun-claude-midday.png"))
+    s_claude = [sp.evaluate("getComputedStyle(document.querySelector('.ptile')).backgroundImage.slice(0, 60)")]
+    sp.evaluate(f"() => {{ window.__T = {day['d0'] + 22 * 3600e3}; skyPaint(true); }}"); sp.wait_for_timeout(1200)
+    sp.screenshot(path=os.path.join(SHOTS, "sun-claude-night.png"))
+    s_claude.append(sp.evaluate("[document.body.classList.contains('skynight'), getComputedStyle(document.querySelector('.ptile')).boxShadow]"))
+    sp.evaluate("window.launcherBack()"); sp.wait_for_timeout(500)
     sp.click("#title"); sp.click("#tonebtn"); sp.wait_for_timeout(400)
     sp.click('#o-mode button[data-m="solid"]'); sp.wait_for_timeout(300)
     s_back = sp.evaluate("[document.body.classList.contains('sun'), window.MOCK_FILES_THEME, getComputedStyle(document.querySelector('#mh .t')).backgroundColor]")
@@ -222,4 +263,7 @@ print("sun: note before", repr(s_note0), "| asked for the place:", s_asked, "| s
 print("sun: Atlas in Files gets", s_files, "| Settings says:", repr(s_note))
 print("sun: the day in Lisbon, 2026-11-20 [time, phase, sun's height, top color, bottom color, name color]:\n" + "\n".join("  " + str(r) for r in s_rows))
 print("sun: strongest tile color at midday", s_tiles_day, "| at night", s_tiles_night, "| back to One color [sun, Files theme, small Home]:", s_back)
+print("claude: short pull [open, hidden, screen]:", p_short, "| swiped up [open, screen, tiles, ring slices, projects, requests, meta, idle]:", p_open)
+print("claude: memory ring legend:", p_mem, "| swiped down [open, hidden, screen]:", p_down, "| Back [used, open, hidden]:", p_back, "| the file gone, last numbers kept [warned, list hidden]:", p_none)
+print("claude in Sun mode: midday tile", s_claude[0], "| night [skynight, tile edge]:", s_claude[1])
 print("errors:", errors or "none")
