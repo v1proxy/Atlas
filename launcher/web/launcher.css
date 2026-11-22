@@ -465,15 +465,3 @@ body.sun.skynight .cweek .on .dn, body.sun.skynight .cmgrid .on .dn { box-shadow
 .cform .ccheck { display: flex; align-items: center; gap: 10px; font: 15px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--ink); }
 .cform .ccheck input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .cal.anim { transition: none; } }
-
-/* ---- Home Assistant (1.6.1): swipe left on Home --------------------------------------------------------------------- */
-/* Its tile comes in from the right with the finger, in the boxes' color (the sky in Sun mode, edged at night); letting go
-   opens the app from it (launcher.js). Its name sits where Apps sits on its box. */
-.hapanel { position: fixed; inset: 0; z-index: 32; display: grid; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--bg); transform: translateX(100%); will-change: transform; }
-.hapanel.anim { transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
-.hatile { position: relative; min-height: 0; overflow: hidden; background: var(--top-bg, var(--r3)); color: var(--box-ink); }
-body.sun .hatile { background: linear-gradient(to bottom, var(--s0), var(--s1), var(--s2), var(--s3), var(--s4), var(--s5)); }
-body.sun.skynight .hatile { box-shadow: inset 0 0 0 1px var(--line); }
-.hatile .lbl { position: absolute; top: 12px; right: 16px; font: 300 46px/1.05 var(--f-body); letter-spacing: -.01em; text-align: right; }
-.hatile .v { position: absolute; top: 66px; right: 16px; font: 12px/1.45 var(--f-mono); opacity: .85; }
-@media (prefers-reduced-motion: reduce) { .hapanel.anim { transition: none; } }

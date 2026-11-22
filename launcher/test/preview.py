@@ -279,22 +279,30 @@ with sync_playwright() as p:
     pg.evaluate("L.theme = { ...theme(), ivory: true }; applyTheme()"); pg.wait_for_timeout(300)
     pg.screenshot(path=os.path.join(SHOTS, "9g-ivory.png"))
     pg.evaluate("L.theme = { ...theme(), ivory: false }; applyTheme(); window.launcherBack()"); pg.wait_for_timeout(500)
-    # Home Assistant (1.6.1): swipe left on Home brings its tile in from the right with the finger and opens the app; a
-    # short pull springs back; the tile goes once Atlas is behind the app. The calendar's swipes stay as they were.
+    # Home Assistant (1.6.2): swipe left on Home opens the app straight away, with nothing in between: past a fifth of
+    # the screen, or with a flick; a short pull does nothing. The calendar's swipes stay as they were.
     pg.click("#title"); pg.wait_for_timeout(300)
     launches = "window.MOCK_LOG.filter(x => x[0] === 'launch').map(x => x[1].key.split('/')[0])"
+    tile = "!!document.querySelector('#ha, .hapanel, .hatile')"
     n0 = len(pg.evaluate(launches))
-    h_short = (hswipe(pg, 360, 300, 520), pg.wait_for_timeout(500), pg.evaluate(f"[HA.on, document.querySelector('#ha').hidden, {launches}.length - {n0}]"))[2]
+    h_short = (hswipe(pg, 360, 300, 520), pg.wait_for_timeout(500), pg.evaluate(f"[{tile}, L.screen, {launches}.length - {n0}]"))[2]
     hswipe(pg, 360, 60, 520, ms=300); pg.wait_for_timeout(120)
     pg.screenshot(path=os.path.join(SHOTS, "10-home-assistant.png"))
-    pg.wait_for_timeout(300)
-    h_open = pg.evaluate(f"[HA.on, document.querySelector('#ha-v').textContent, {launches}.slice({n0})]")
+    h_open = pg.evaluate(f"[{tile}, L.screen, {launches}.slice({n0})]")
     pg.evaluate("window.onLauncherEvent({ type: 'pause' })"); pg.wait_for_timeout(200)
-    h_back = pg.evaluate("[HA.on, document.querySelector('#ha').hidden, L.screen]")
+    n1 = len(pg.evaluate(launches))
+    hswipe(pg, 360, 290, 520, ms=60); pg.wait_for_timeout(300)                            # a flick: short, but quick
+    h_flick = pg.evaluate(f"{launches}.slice({n1})")
+    pg.evaluate("window.__apps = L.apps; L.apps = L.apps.filter(a => !HA_PKG.test(a.pkg))")
+    n2 = len(pg.evaluate(launches))
+    hswipe(pg, 360, 60, 520); pg.wait_for_timeout(200)
+    h_none = pg.evaluate(f"[document.querySelector('#toast').textContent, !document.querySelector('#toast').hidden, {launches}.length - {n2}]")
+    pg.evaluate("L.apps = window.__apps; document.querySelector('#toast').hidden = true")
+    n3 = len(pg.evaluate(launches))
     hswipe(pg, 40, 360, 520); pg.wait_for_timeout(700)
     h_cal = [pg.evaluate("CAL.open")]
     hswipe(pg, 360, 40, 640, sel="#c-body"); pg.wait_for_timeout(600)
-    h_cal += pg.evaluate(f"[CAL.open, HA.on, {launches}.length - {n0}]")
+    h_cal += pg.evaluate(f"[CAL.open, {launches}.length - {n3}]")
     # Sun (1.4.0): picking Sun asks for the phone's place (the stand-in answers Lisbon); the boxes follow the sky there.
     # The clock is frozen at moments of 2026-11-20 in Lisbon's time; the colors glide for 0.9 s to each new moment.
     sx = b.new_context(viewport={"width": 412, "height": 915}, device_scale_factor=2, has_touch=True, is_mobile=True,
@@ -351,10 +359,6 @@ with sync_playwright() as p:
     sp.screenshot(path=os.path.join(SHOTS, "sun-calendar-night.png"))
     s_cal.append(sp.evaluate("[document.body.classList.contains('skynight'), getComputedStyle(document.querySelector('#c-strip .on .dn')).boxShadow]"))
     sp.evaluate("window.launcherBack()"); sp.wait_for_timeout(500)
-    hswipe(sp, 360, 60, 520); sp.wait_for_timeout(400)
-    sp.screenshot(path=os.path.join(SHOTS, "sun-home-assistant-night.png"))
-    s_cal.append(sp.evaluate("[getComputedStyle(document.querySelector('.hatile')).backgroundImage.slice(0, 40), getComputedStyle(document.querySelector('.hatile')).boxShadow]"))
-    sp.evaluate("window.onLauncherEvent({ type: 'pause' })"); sp.wait_for_timeout(300)
     sp.click("#title"); sp.click("#tonebtn"); sp.wait_for_timeout(400)
     sp.click('#o-mode button[data-m="solid"]'); sp.wait_for_timeout(300)
     s_back = sp.evaluate("[document.body.classList.contains('sun'), window.MOCK_FILES_THEME, getComputedStyle(document.querySelector('#mh .t')).backgroundColor]")
@@ -398,6 +402,6 @@ print("calendar: new event from an empty hour [form, start, end, calendar, remin
 print("calendar: Family hidden [events before, after, hide list, shown again]:", k_hide, "| color [picker, saved, swatch]:", k_color)
 print("calendar: away [swipe left], [Back used, open], [name on the left]:", k_away, "| not allowed [allowed, Allow button, + hidden, asked], then allowed:", k_perm)
 print("calendar in Sun mode: picked day midday", s_cal[0], "| night [skynight, edge]:", s_cal[1])
-print("home assistant: short pull [on, hidden, launches]:", h_short, "| swiped left [on, says, launched]:", h_open, "| Atlas behind it [on, hidden, screen]:", h_back)
-print("home assistant: then the calendar [opens, left swipe on it: open, HA on, launches since]:", h_cal, "| at night in Sun mode [tile, edge]:", s_cal[2])
+print("home assistant: short pull [a tile, screen, launches]:", h_short, "| swiped left [a tile, screen, launched]:", h_open, "| flicked, launched:", h_flick)
+print("home assistant: not on the phone [toast, shown, launches]:", h_none, "| then the calendar [opens, left swipe on it: open, launches]:", h_cal)
 print("errors:", errors or "none")
