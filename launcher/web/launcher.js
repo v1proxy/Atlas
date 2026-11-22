@@ -63,6 +63,12 @@ async function server(path) {
   if (r.status !== 200) throw new Error(r.status ? "Atlas answered " + r.status : "can't reach Atlas");
   return JSON.parse(r.body);
 }
+async function serverPost(path, obj) {                                   // a change on Atlas (the app adds its X-Atlas header)
+  const r = await native("server", { path, method: "POST", body: JSON.stringify(obj || {}) });
+  if (r.status === 401) throw new Error("not signed in");
+  if (r.status !== 200) throw new Error(r.status ? "Atlas answered " + r.status : "can't reach Atlas");
+  return JSON.parse(r.body || "{}");
+}
 const savePref = (key, value) => fire("prefs.set", { key, value });
 
 // Android tells the page about the world through window.onLauncherEvent.
@@ -1473,7 +1479,11 @@ function moveApp(a, state, cat) {
 // the cloud drive; the page reads that file through Atlas like any other file. Five tiles (processes, memory, CPU, GPU,
 // free memory), a ring of who uses what (CPU, GPU or memory), and the projects with their requests.
 const PROCS_FILE = "G:\\My Drive\\.atlas\\claude-processes.json";
-const PR = { open: false, data: null, err: "", metric: "cpu", timer: 0, seq: 0, hideT: 0 };
+const PR = { open: false, data: null, err: "", metric: "cpu", timer: 0, seq: 0, hideT: 0, want: null, wantAt: 0, fast: 0, sure: 0, note: "" };
+// Pause all (1.6.0): the panel renames a marker folder beside the PC's file, claude-run or claude-paused, through Atlas. The
+// PC looks at it every few seconds: on claude-paused it freezes Claude's jobs (never the Claude app or its connectors), on
+// claude-run it wakes the same processes again, and saves its numbers at once, so the panel sees it within a minute.
+const PR_DIR = "G:\\My Drive\\.atlas", PR_RUN = PR_DIR + "\\claude-run", PR_HOLD = PR_DIR + "\\claude-paused";
 const PR_TONES = ["var(--r3)", "var(--r2)", "var(--r4)", "var(--r1)", "var(--r5)", "var(--r0)"];
 const prNum = (v, d = 1) => v == null || v === "" || !isFinite(+v) ? "\u2013" : (+v).toLocaleString("en-US", { maximumFractionDigits: d });
 const prPct = v => v == null || v === "" || !isFinite(+v) ? "\u2013" : prNum(v) + "%";
@@ -1484,10 +1494,12 @@ function openProcs() {
   p.classList.add("anim"); p.style.transform = "translateY(0px)";
   if (!PR.open) { PR.open = true; haptic("tick"); $("#p-body").scrollTop = 0; }
   loadProcs(); clearInterval(PR.timer); PR.timer = setInterval(loadProcs, 30000);
+  if (PR.want) procsSoon();
 }
 function closeProcs(now) {
   const p = $("#procs"); if (!p) return;
-  clearInterval(PR.timer); PR.timer = 0; PR.open = false; clearTimeout(PR.hideT);
+  clearInterval(PR.timer); PR.timer = 0; clearInterval(PR.fast); PR.fast = 0; PR.open = false; clearTimeout(PR.hideT);
+  if (PR.sure) { clearTimeout(PR.sure); PR.sure = 0; }
   if (now || p.hidden || reduced()) { p.classList.remove("anim"); p.style.transform = ""; p.hidden = true; return; }
   p.classList.add("anim"); p.style.transform = "translateY(100%)";
   PR.hideT = setTimeout(() => { if (!PR.open) { p.hidden = true; p.classList.remove("anim"); p.style.transform = ""; } }, 280);
@@ -1500,6 +1512,8 @@ async function loadProcs() {
     if (!rows.some(x => x && x.kind === "total")) throw new Error("empty");
     if (seq !== PR.seq) return;
     PR.data = { rows, every: +d.every || 120 }; PR.err = "";
+    const st = procsState(rows.find(x => x.kind === "total"));
+    if (PR.want && st === PR.want) { PR.want = null; PR.note = ""; clearInterval(PR.fast); PR.fast = 0; }
   } catch (e) {
     if (seq !== PR.seq) return;
     const m = e && e.message || "";
@@ -1512,13 +1526,20 @@ async function loadProcs() {
 function renderProcs() {
   const rows = PR.data && PR.data.rows, t = rows && rows.find(x => x.kind === "total");
   $("#p-empty").hidden = !!t; $("#p-main").hidden = !t;
-  if (!t) { $("#p-empty").textContent = PR.err || "Asking Atlas"; $("#p-meta").textContent = "Asking Atlas"; return; }
+  if (!t) { $("#p-empty").textContent = PR.err || "Asking Atlas"; $("#p-meta").textContent = "Asking Atlas"; $("#p-pause").hidden = true; return; }
   const at = Date.parse(t.at), mins = isFinite(at) ? Math.max(0, Math.round((Date.now() - at) / 60000)) : null;
   const old = mins != null && mins > Math.max(6, 3 * PR.data.every / 60);
   const when = mins == null ? "" : mins < 1 ? "Updated just now" : mins < 60 ? `Updated ${mins} min ago`
     : "Updated " + new Date(at).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
   $("#p-meta").innerHTML = `<b>${esc(t.host || "Your PC")}</b> · ${esc(when)}` + (old ? ` · <span class="warn">the PC may be asleep or off</span>` : "")
     + (PR.err ? ` · <span class="warn">${esc(PR.err)}</span>` : "");
+  const st = drawPause(t), sinceAt = Date.parse(t.pausedSince), np = +t.paused || 0;
+  const line = st === "paused" ? `Paused since ${isFinite(sinceAt) ? new Date(sinceAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "now"}: `
+      + (np ? `${prNum(np, 0)} process${np === 1 ? " is" : "es are"} frozen. Resume all wakes them.` : "nothing of Claude's was running.")
+    : st === "pausing" ? "Pausing: the PC freezes Claude's jobs as soon as it sees it, usually within a minute."
+    : st === "resuming" ? "Resuming: the PC wakes the same processes, usually within a minute." : "";
+  $("#p-state").hidden = !(line || PR.note); $("#p-state").className = "pstate" + (st === "paused" ? " warn" : "");
+  $("#p-state").textContent = [line, PR.note].filter(Boolean).join(" ");
   const n = +t.requests || 0;
   const tiles = [["Claude processes", prNum(t.procs, 0), `${prNum(n, 0)} request${n === 1 ? "" : "s"} and the Claude app`],
     ["Memory used by Claude", prNum(t.gb) + " GB", `${prNum(t.pctRam, 0)}% of ${prNum(t.ramGb)} GB`],
@@ -1533,11 +1554,61 @@ function renderProcs() {
   $("#p-list").innerHTML = `<div class="prow phd"><span>Request</span><span class="num">Memory</span><span class="num">CPU</span><span class="num">GPU</span></div>`
     + (projects.length ? projects.map(p => `<div class="prow pj"><span class="t">${esc(p.title || p.project)}</span>${cells(p)}</div>`
       + rows.filter(r => r.kind === "request" && r.project === p.project).sort((a, b) => (+b.memPct || 0) - (+a.memPct || 0) || (+b.cpu || 0) - (+a.cpu || 0))
-        .map(r => `<div class="prow rq"><span class="t">${esc(r.title)}${r.desc ? `<small>${esc(r.desc)}</small>` : ""}</span>${cells(r)}</div>`).join("")).join("")
+        .map(r => `<div class="prow rq"><span class="t">${esc(r.title)}${r.paused ? `<em class="ptag">paused</em>` : ""}${r.desc ? `<small>${esc(r.desc)}</small>` : ""}</span>${cells(r)}</div>`).join("")).join("")
       : `<p class="pnone">Nothing from Claude is running.</p>`);
   const idle = rows.filter(r => r.kind === "project" && +r.requests === 0).map(r => r.project);
   $("#p-idle").hidden = !idle.length; $("#p-idle").textContent = idle.length ? `Nothing running in ${idle.join(", ")}.` : "";
 }
+// What the PC says: running, pausing (the marker says pause, nothing frozen yet), paused, or resuming.
+function procsState(t) {
+  if (!t) return "";
+  if ((t.control || "running") === "paused") return t.pausedSince ? "paused" : "pausing";
+  return +t.paused > 0 || t.pausedSince ? "resuming" : "running";
+}
+// One button: Pause all (tap, then Sure?), and while paused, Resume all. In between it says what it is waiting for.
+function drawPause(t) {
+  const b = $("#p-pause"); if (!b) return;
+  const pc = procsState(t);
+  let st = pc;
+  if (PR.want === "paused" && (pc === "running" || pc === "resuming")) st = "pausing";
+  if (PR.want === "running" && (pc === "paused" || pc === "pausing")) st = "resuming";
+  b.hidden = !t; b.dataset.st = st;
+  b.disabled = st === "pausing" || st === "resuming";
+  b.classList.toggle("on", st === "paused");
+  b.textContent = st === "paused" ? "Resume all" : st === "pausing" ? "Pausing\u2026" : st === "resuming" ? "Resuming\u2026" : PR.sure ? "Sure?" : "Pause all";
+  return st;
+}
+async function procsControl(want) {
+  PR.want = want; PR.wantAt = Date.now(); PR.note = ""; haptic("tick"); renderProcs();
+  try { await serverPost("/api/rename", want === "paused" ? { path: PR_RUN, name: "claude-paused" } : { path: PR_HOLD, name: "claude-run" }); }
+  catch (e) {
+    try {                                                               // the marker isn't where it should be: set it anyway
+      if (e.message === "not signed in") throw e;
+      if (want === "paused") await serverPost("/api/mkdir", { dir: PR_DIR, name: "claude-paused" });
+      else await serverPost("/api/delete", { items: [PR_HOLD] });
+    } catch (e2) {
+      PR.want = null; PR.note = e2.message === "not signed in" ? "Not signed in to Atlas yet" : `Couldn't reach Atlas to ${want === "paused" ? "pause" : "resume"}`;
+      renderProcs(); return;
+    }
+  }
+  procsSoon();
+}
+// While a change is on its way, look every 5 s, for up to 3 minutes.
+function procsSoon() {
+  clearInterval(PR.fast);
+  PR.fast = setInterval(() => {
+    if (PR.want && Date.now() - PR.wantAt < 180000) return loadProcs();
+    clearInterval(PR.fast); PR.fast = 0;
+    if (PR.want) { PR.want = null; PR.note = "The PC hasn't answered yet: is it on?"; renderProcs(); }
+  }, 5000);
+}
+$("#p-pause").onclick = () => {
+  const st = $("#p-pause").dataset.st;
+  if (st === "paused") return procsControl("running");
+  if (st !== "running") return;
+  if (!PR.sure) { haptic("tick"); PR.sure = setTimeout(() => { PR.sure = 0; renderProcs(); }, 3000); return renderProcs(); }
+  clearTimeout(PR.sure); PR.sure = 0; procsControl("paused");
+};
 // A slice of the ring, from angle a0 to a1 (radians, clockwise from the top), between radii r0 and r1.
 function ringArc(c, r0, r1, a0, a1) {
   if (a1 - a0 >= 2 * Math.PI - 1e-6) return ringArc(c, r0, r1, a0, a0 + Math.PI) + " " + ringArc(c, r0, r1, a0 + Math.PI, a1);

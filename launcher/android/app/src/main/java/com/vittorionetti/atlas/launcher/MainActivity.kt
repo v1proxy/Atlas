@@ -318,7 +318,8 @@ class MainActivity : Activity() {
         "appInfo" -> { apps.details(a.getString("key")); true }
         "uninstall" -> { uninstall(a.getString("key")); true }
         "server" -> {
-            val (code, body) = server.text(a.getString("path"))
+            val post = a.optString("method").equals("POST", true)          // a change, such as Pause in the Claude panel
+            val (code, body) = server.text(a.getString("path"), if (post) "POST" else "GET", if (post) a.optString("body", "{}") else null)
             JSONObject().put("status", code).put("body", body)
         }
         "serverPost" -> {

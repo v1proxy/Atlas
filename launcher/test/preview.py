@@ -189,6 +189,16 @@ with sync_playwright() as p:
     pg.click('#p-metric button[data-k="memPct"]'); pg.wait_for_timeout(200)
     p_mem = pg.evaluate("[...document.querySelectorAll('#p-legend li')].map(li => li.textContent)")
     pg.screenshot(path=os.path.join(SHOTS, "8c-claude-memory.png"))
+    # Pause all (1.6.0): tap, then Sure?; the PC (here the stand-in, a moment later) freezes Claude's jobs; Resume all wakes them
+    p_pause = [pg.inner_text("#p-pause")]
+    pg.click("#p-pause"); pg.wait_for_timeout(200); p_pause.append(pg.inner_text("#p-pause"))
+    pg.click("#p-pause"); pg.wait_for_timeout(300); p_pause.append(pg.inner_text("#p-pause"))
+    pg.wait_for_timeout(7000)
+    p_pause.append(pg.evaluate("[document.querySelector('#p-pause').textContent, document.querySelector('#p-state').textContent.includes('Paused since'), document.querySelectorAll('#p-list .ptag').length]"))
+    pg.screenshot(path=os.path.join(SHOTS, "8d-claude-paused.png"))
+    pg.click("#p-pause"); pg.wait_for_timeout(300); p_pause.append(pg.inner_text("#p-pause"))
+    pg.wait_for_timeout(7000)
+    p_pause.append(pg.evaluate("[document.querySelector('#p-pause').textContent, document.querySelectorAll('#p-list .ptag').length]"))
     swipe(pg, 220, 760, sel="#procs"); pg.wait_for_timeout(600)
     p_down = pg.evaluate("[PR.open, document.querySelector('#procs').hidden, L.screen]")
     swipe(pg, 760, 260); pg.wait_for_timeout(600)
@@ -404,4 +414,5 @@ print("calendar: away [swipe left], [Back used, open], [name on the left]:", k_a
 print("calendar in Sun mode: picked day midday", s_cal[0], "| night [skynight, edge]:", s_cal[1])
 print("home assistant: short pull [a tile, screen, launches]:", h_short, "| swiped left [a tile, screen, launched]:", h_open, "| flicked, launched:", h_flick)
 print("home assistant: not on the phone [toast, shown, launches]:", h_none, "| then the calendar [opens, left swipe on it: open, launches]:", h_cal)
+print("claude pause: [button, after a tap, after Sure, (paused: button, the line says paused, paused tags), after Resume, (resumed: button, tags)]:", p_pause)
 print("errors:", errors or "none")

@@ -278,6 +278,11 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .phead { position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 12px 8px; border-bottom: 1px solid var(--line); min-width: 0; }
 .phead h2 { font: 300 22px/1 var(--f-body); margin: 0; white-space: nowrap; }
 .phead .warn { color: var(--warn); }
+.phead .btn { flex: none; }
+.phead .btn.on { border-color: var(--ink); }                                  /* Resume all stands out while paused */
+.pstate { margin: 0 4px; font: 12px/1.45 var(--f-mono); color: var(--dim); }
+.pstate.warn { color: var(--warn); }
+.prow .ptag { font: 400 10px var(--f-mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: var(--warn); margin-left: 6px; white-space: nowrap; }
 .pgrab { position: absolute; left: 50%; top: 0; width: 64px; height: 16px; margin-left: -32px; padding: 0; border: 0; background: none; cursor: pointer; }
 .pgrab::after { content: ""; position: absolute; left: 16px; right: 16px; top: 7px; height: 1px; background: var(--ink); }
 .pbody { overflow: auto; overscroll-behavior: contain; padding: 12px 8px calc(20px + env(safe-area-inset-bottom, 0px)); }
