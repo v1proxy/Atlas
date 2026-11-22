@@ -66,7 +66,17 @@
     { id: 3, key: "k3", name: "Grace Hopper", sub: "grace@example.com", apps: [mail("grace@example.com")] },
   ];
   // What the PC's Claude process tracker saves every 2 minutes (G:\\My Drive\\.atlas\\claude-processes.json): made up.
-  const claudeRows = () => ({ v: 1, every: 120, rows: [
+  // Pause all (1.6.0): the marker the panel renames, and the PC (here, a moment later) doing it.
+  const MOCK_CTL = { want: "running", have: "running", since: null };
+  const claudeRows = () => {
+    const d = claudeBase(), c = MOCK_CTL;
+    for (const r of d.rows) {
+      if (r.kind === "request") r.paused = c.have === "paused" && r.project !== "Claude itself";
+      if (r.kind === "total") Object.assign(r, { control: c.want, paused: c.have === "paused" ? 6 : 0, pausedSince: c.since });
+    }
+    return d;
+  };
+  const claudeBase = () => ({ v: 1, every: 120, rows: [
     { kind: "request", key: "q:job-1", project: "Harbor Library", title: "Massing model renders", desc: "Blender renders the views one at a time, on the CPU at low priority.", procs: 3, memPct: 35.2, cpu: 71.4, gpu: 0 },
     { kind: "request", key: "q:job-2", project: "Harbor Library", title: "Compositing and encoding", desc: "Puts the frames together as they arrive, then encodes the film.", procs: 2, memPct: 0.6, cpu: 2.1, gpu: 4.5 },
     { kind: "request", key: "q:dc-1", project: "Courses", title: "Command from a Claude chat", desc: "python export_slides.py --deck \"Lecture 04\"", procs: 1, memPct: 0.4, cpu: 0.8, gpu: 0 },
@@ -87,6 +97,15 @@
       case "prefs.set": prefs[args.key] = args.value; return true;
       case "info": return { version: "1.0.0 (preview)", server: "https://atlas.example.ts.net", isDefault: false };
       case "server": {
+        if (args.method === "POST") {                              // Pause all (1.6.0): the marker beside the PC's file
+          const b = JSON.parse(args.body || "{}"), c = MOCK_CTL;
+          const to = args.path === "/api/rename" ? (b.name === "claude-paused" ? "paused" : b.name === "claude-run" ? "running" : "")
+            : args.path === "/api/mkdir" && b.name === "claude-paused" ? "paused" : args.path === "/api/delete" ? "running" : "";
+          if (!to) return { status: 400, body: JSON.stringify({ error: "not here" }) };
+          c.want = to;
+          setTimeout(() => { c.have = to; c.since = to === "paused" ? new Date().toISOString() : null; }, 1500);
+          return { status: 200, body: JSON.stringify(args.path === "/api/delete" ? { deleted: 1 } : { path: b.path || b.dir || "" }) };
+        }
         if (args.path === "/map.json") return { status: 200, body: await (await fetch("demo-map.json")).text() };
         if (args.path === "/settings") return { status: 200, body: JSON.stringify({ tone: prefs.tone }) };
         if (args.path.startsWith("/api/text?")) {                // Claude on the PC (1.5.0): the PC's numbers, made up

@@ -175,6 +175,16 @@ with sync_playwright() as p:
     pg.click('#p-metric button[data-k="memPct"]'); pg.wait_for_timeout(200)
     p_mem = pg.evaluate("[...document.querySelectorAll('#p-legend li')].map(li => li.textContent)")
     pg.screenshot(path=os.path.join(SHOTS, "8c-claude-memory.png"))
+    # Pause all (1.6.0): tap, then Sure?; the PC (here the stand-in, a moment later) freezes Claude's jobs; Resume all wakes them
+    p_pause = [pg.inner_text("#p-pause")]
+    pg.click("#p-pause"); pg.wait_for_timeout(200); p_pause.append(pg.inner_text("#p-pause"))
+    pg.click("#p-pause"); pg.wait_for_timeout(300); p_pause.append(pg.inner_text("#p-pause"))
+    pg.wait_for_timeout(7000)
+    p_pause.append(pg.evaluate("[document.querySelector('#p-pause').textContent, document.querySelector('#p-state').textContent.includes('Paused since'), document.querySelectorAll('#p-list .ptag').length]"))
+    pg.screenshot(path=os.path.join(SHOTS, "8d-claude-paused.png"))
+    pg.click("#p-pause"); pg.wait_for_timeout(300); p_pause.append(pg.inner_text("#p-pause"))
+    pg.wait_for_timeout(7000)
+    p_pause.append(pg.evaluate("[document.querySelector('#p-pause').textContent, document.querySelectorAll('#p-list .ptag').length]"))
     swipe(pg, 220, 760, sel="#procs"); pg.wait_for_timeout(600)
     p_down = pg.evaluate("[PR.open, document.querySelector('#procs').hidden, L.screen]")
     swipe(pg, 760, 260); pg.wait_for_timeout(600)
@@ -266,4 +276,5 @@ print("sun: strongest tile color at midday", s_tiles_day, "| at night", s_tiles_
 print("claude: short pull [open, hidden, screen]:", p_short, "| swiped up [open, screen, tiles, ring slices, projects, requests, meta, idle]:", p_open)
 print("claude: memory ring legend:", p_mem, "| swiped down [open, hidden, screen]:", p_down, "| Back [used, open, hidden]:", p_back, "| the file gone, last numbers kept [warned, list hidden]:", p_none)
 print("claude in Sun mode: midday tile", s_claude[0], "| night [skynight, tile edge]:", s_claude[1])
+print("claude pause: [button, after a tap, after Sure, (paused: button, the line says paused, paused tags), after Resume, (resumed: button, tags)]:", p_pause)
 print("errors:", errors or "none")
