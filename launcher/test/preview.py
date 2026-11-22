@@ -47,6 +47,20 @@ def swipe(page, y0, y1, x=206, ms=200, sel="#home"):
         const tick = () => { i++; const y = y0 + (y1 - y0) * i / n; ev('touchmove', y, true); if (i < n) setTimeout(tick, ms / n); else { ev('touchend', y, false); done(); } };
         setTimeout(tick, ms / n); })""", [x, y0, y1, ms, sel])
 
+def hswipe(page, x0, x1, y, ms=220, sel="#home"):
+    """The same, sideways: right to bring the calendar in, left to put it away, or to move a week, a day or a month."""
+    page.evaluate("""([x0, x1, y, ms, sel]) => new Promise(done => {
+        const el = document.elementFromPoint(x0, y) || document.querySelector(sel), n = 8;
+        const T = x => new Touch({ identifier: 8, target: el, clientX: x, clientY: y });
+        const ev = (type, x, on) => el.dispatchEvent(new TouchEvent(type, { touches: on ? [T(x)] : [], changedTouches: [T(x)], bubbles: true, cancelable: true }));
+        ev('touchstart', x0, true); let i = 0;
+        const tick = () => { i++; const x = x0 + (x1 - x0) * i / n; ev('touchmove', x, true); if (i < n) setTimeout(tick, ms / n); else { ev('touchend', x, false); done(); } };
+        setTimeout(tick, ms / n); })""", [x0, x1, y, ms, sel])
+
+def mid_y(page, sel):
+    b = page.locator(sel).first.bounding_box()
+    return b["y"] + b["height"] / 2
+
 
 errors = []
 with sync_playwright() as p:
@@ -183,6 +197,88 @@ with sync_playwright() as p:
     pg.evaluate("window.MOCK_CLAUDE = null"); swipe(pg, 760, 260); pg.wait_for_timeout(700)
     p_none = pg.evaluate("[document.querySelector('#p-meta').textContent.includes('No numbers'), document.querySelector('#p-main').hidden]")
     pg.evaluate("window.MOCK_CLAUDE = undefined; window.launcherBack()"); pg.wait_for_timeout(500)
+    # The calendar (1.6.0): swipe right on Home brings every calendar on the phone in from the left with the finger; a
+    # short pull springs back; swipe left, Back or the name on the left puts it away. Agenda, Day, 3 days and Month; an
+    # event's details with Join and the answer; Calendars to show, hide or color one; + for a new event. The stand-in's
+    # calendars: a Google account, two Outlook accounts and a work profile, with events around today.
+    pg.click("#title"); pg.wait_for_timeout(300)
+    k_short = (hswipe(pg, 40, 100, 520), pg.wait_for_timeout(500), pg.evaluate("[CAL.open, document.querySelector('#cal').hidden, L.screen]"))[2]
+    hswipe(pg, 40, 360, 520); pg.wait_for_timeout(900)
+    k_open = pg.evaluate("""[CAL.open, L.screen, CAL.view, CAL.sel === todayJd(), document.querySelectorAll('#c-strip .cweek button').length,
+        document.querySelector('.cday.today .cdh').textContent, [...document.querySelectorAll('.cday.today .crow .cn')].map(x => x.textContent),
+        document.querySelectorAll('.crow .cj').length > 0, document.querySelector('#c-meta').textContent]""")
+    pg.screenshot(path=os.path.join(SHOTS, "9-calendar.png"))
+    sy = mid_y(pg, "#c-strip"); hswipe(pg, 360, 60, sy, sel="#c-strip"); pg.wait_for_timeout(400)
+    k_week = pg.evaluate("CAL.sel - todayJd()")
+    pg.click("#c-today"); pg.wait_for_timeout(400)
+    k_week = [k_week, pg.evaluate("CAL.sel === todayJd() && CAL.open")]
+    # Stand-up: repeats on weekdays, a Teams meeting someone else organized. Join, then Tentative for this event only.
+    pg.evaluate("[...document.querySelectorAll('.crow')].find(r => r.textContent.includes('Stand-up') && +r.dataset.jd >= todayJd()).click()"); pg.wait_for_timeout(700)
+    k_event = pg.evaluate("""[document.querySelector('#panel h2').textContent, document.querySelector('.cchip').textContent, document.querySelector('.cwhen').textContent,
+        !!document.querySelector('#e-join'), document.querySelectorAll('#e-rsvp button').length, !!document.querySelector('#e-one'),
+        document.querySelector('.cpeople .note').textContent, document.querySelectorAll('.cnotes .clink').length]""")
+    pg.screenshot(path=os.path.join(SHOTS, "9b-event.png"))
+    pg.click("#e-join"); pg.wait_for_timeout(150)
+    pg.click('#e-rsvp button[data-s="4"]'); pg.wait_for_timeout(400)
+    k_said = pg.inner_text("#e-said")
+    k_calls = pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'cal.go' || x[0] === 'cal.respond').map(x => x[0] + ' ' + JSON.stringify(x[1]).slice(0, 70))")
+    pg.evaluate("window.launcherBack()"); pg.wait_for_timeout(400)
+    k_back1 = pg.evaluate("[CAL.open, document.body.classList.contains('sheeton')]")
+    # the views: the hours (one day, three days) and the month
+    k_views = {}
+    for v in ("day", "3day", "month"):
+        pg.click(f'#c-views button[data-v="{v}"]'); pg.wait_for_timeout(450)
+        k_views[v] = pg.evaluate("[document.querySelectorAll('#c-body .cev').length, document.querySelectorAll('#c-body .cgcol').length, !!document.querySelector('.cnow'), document.querySelectorAll('.cmgrid button').length, document.querySelector('#c-strip').hidden]")
+        pg.screenshot(path=os.path.join(SHOTS, f"9c-{v}.png"))
+    m0 = pg.evaluate("dateOf(CAL.sel).getMonth()"); hswipe(pg, 360, 60, mid_y(pg, ".cmgrid"), sel=".cmgrid"); pg.wait_for_timeout(400)
+    k_month = [(pg.evaluate("dateOf(CAL.sel).getMonth()") - m0) % 12, pg.evaluate("CAL.open")]
+    pg.click("#c-today"); pg.wait_for_timeout(300)
+    pg.click('#c-views button[data-v="3day"]'); pg.wait_for_timeout(400)
+    d0 = pg.evaluate("CAL.sel"); hswipe(pg, 360, 60, 600, sel=".ctime"); pg.wait_for_timeout(400)
+    k_days = [pg.evaluate("CAL.sel") - d0, pg.evaluate("CAL.open")]
+    pg.click("#c-today"); pg.click('#c-views button[data-v="day"]'); pg.wait_for_timeout(400)
+    # an empty hour in the day: a new event there, on the half hour. Save one, and it's in the day.
+    pg.evaluate(f"document.querySelector('#c-body').scrollTop = 5 * HOUR"); pg.wait_for_timeout(200)
+    gb = pg.locator(".cgcol").first.bounding_box(); top = pg.evaluate("document.querySelector('.cgcol').getBoundingClientRect().top")
+    pg.mouse.click(gb["x"] + gb["width"] - 40, top + 6.4 * 52); pg.wait_for_timeout(500)
+    k_new = pg.evaluate("[!!document.querySelector('#n-title'), document.querySelector('#n-st').value, document.querySelector('#n-et').value, document.querySelector('#n-cal').selectedOptions[0].textContent, document.querySelector('#n-rem').value]")
+    pg.screenshot(path=os.path.join(SHOTS, "9d-new.png"))
+    pg.fill("#n-title", "Site visit"); pg.fill("#n-loc", "Hangar 3"); pg.select_option("#n-cal", index=2)
+    pg.click("#n-save"); pg.wait_for_timeout(700)
+    k_new += [pg.evaluate("window.MOCK_LOG.filter(x => x[0] === 'cal.create').map(x => [x[1].title, x[1].loc, x[1].allDay, x[1].remind, new Date(x[1].begin).getHours()])"),
+              pg.evaluate("[...document.querySelectorAll('.cev')].some(e => e.textContent.includes('Site visit'))"), pg.inner_text("#toast")]
+    # Calendars: tap Family to hide its events here, tap again to show them; hold it for a color; turn on Birthdays
+    pg.click('#c-views button[data-v="agenda"]'); pg.wait_for_timeout(300)
+    pg.click("#c-cals"); pg.wait_for_timeout(400)
+    pg.screenshot(path=os.path.join(SHOTS, "9e-calendars.png"))
+    count = "[...CAL.days.values()].flat().filter(e => e.cal === 2 && !e.w).length"
+    n0 = pg.evaluate(count); pg.locator(".ccal", has_text="Family").click(); pg.wait_for_timeout(300)
+    k_hide = [n0, pg.evaluate(count), pg.evaluate("CAL.hide")]
+    pg.locator(".ccal", has_text="Family").click(); pg.wait_for_timeout(300); k_hide.append(pg.evaluate(count))
+    fb = pg.locator(".ccal", has_text="Family").bounding_box()
+    pg.mouse.move(fb["x"] + 60, fb["y"] + fb["height"] / 2); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up(); pg.wait_for_timeout(300)
+    k_color = [pg.evaluate("!!document.querySelector('.cswatches')")]
+    pg.click('.csw[data-col="amber"]'); pg.wait_for_timeout(300)
+    k_color += [pg.evaluate("JSON.stringify(CAL.colors)"), pg.evaluate("getComputedStyle([...document.querySelectorAll('.ccal')].find(b => b.textContent.includes('Family')).querySelector('.sw')).backgroundColor")]
+    pg.locator(".ccal", has_text="Birthdays").click(); pg.wait_for_timeout(300)
+    k_color.append(pg.evaluate("[window.MOCK_LOG.filter(x => x[0] === 'cal.show').length, document.querySelector('#toast').textContent]"))
+    pg.evaluate("CAL.colors = {}; saveCal(); window.launcherBack()"); pg.wait_for_timeout(300)
+    # away: swipe left on the agenda; then Back; then the name on the left
+    hswipe(pg, 360, 40, 640, sel="#c-body"); pg.wait_for_timeout(600)
+    k_away = [pg.evaluate("[CAL.open, document.querySelector('#cal').hidden]")]
+    hswipe(pg, 40, 360, 520); pg.wait_for_timeout(600); k_away.append(pg.evaluate("[window.launcherBack(), CAL.open]")); pg.wait_for_timeout(500)
+    hswipe(pg, 40, 360, 520); pg.wait_for_timeout(600); pg.click("#c-title"); pg.wait_for_timeout(500); k_away.append(pg.evaluate("[CAL.open, L.screen]"))
+    # Android not asked yet: the first swipe asks; while there's no answer the calendar says why, Allow calendars asks again
+    pg.evaluate("window.MOCK_CAL_OK = false; window.MOCK_CAL_DENY = true; CAL.asked = false; CAL.ready = false; CAL.allowed = null; CAL.closedAt = 0")
+    hswipe(pg, 40, 360, 520); pg.wait_for_timeout(800)
+    k_perm = [pg.evaluate("[CAL.allowed, !!document.querySelector('[data-act=allow]'), document.querySelector('#c-new').hidden, window.MOCK_LOG.filter(x => x[0] === 'cal.allow').map(x => x[1])]")]
+    pg.screenshot(path=os.path.join(SHOTS, "9f-allow.png"))
+    pg.evaluate("window.MOCK_CAL_DENY = false"); pg.click("[data-act=allow]"); pg.wait_for_timeout(700)
+    k_perm.append(pg.evaluate("[CAL.allowed, document.querySelectorAll('.crow').length > 0]"))
+    # ivory
+    pg.evaluate("L.theme = { ...theme(), ivory: true }; applyTheme()"); pg.wait_for_timeout(300)
+    pg.screenshot(path=os.path.join(SHOTS, "9g-ivory.png"))
+    pg.evaluate("L.theme = { ...theme(), ivory: false }; applyTheme(); window.launcherBack()"); pg.wait_for_timeout(500)
     # Sun (1.4.0): picking Sun asks for the phone's place (the stand-in answers Lisbon); the boxes follow the sky there.
     # The clock is frozen at moments of 2026-11-20 in Lisbon's time; the colors glide for 0.9 s to each new moment.
     sx = b.new_context(viewport={"width": 412, "height": 915}, device_scale_factor=2, has_touch=True, is_mobile=True,
@@ -232,6 +328,13 @@ with sync_playwright() as p:
     sp.screenshot(path=os.path.join(SHOTS, "sun-claude-night.png"))
     s_claude.append(sp.evaluate("[document.body.classList.contains('skynight'), getComputedStyle(document.querySelector('.ptile')).boxShadow]"))
     sp.evaluate("window.launcherBack()"); sp.wait_for_timeout(500)
+    sp.evaluate(f"() => {{ window.__T = {day['noon']}; skyPaint(true); }}"); hswipe(sp, 40, 360, 520); sp.wait_for_timeout(1200)
+    sp.screenshot(path=os.path.join(SHOTS, "sun-calendar-midday.png"))
+    s_cal = [sp.evaluate("getComputedStyle(document.querySelector('#c-strip .on .dn')).backgroundImage.slice(0, 40)")]
+    sp.evaluate(f"() => {{ window.__T = {day['d0'] + 22 * 3600e3}; skyPaint(true); }}"); sp.wait_for_timeout(1200)
+    sp.screenshot(path=os.path.join(SHOTS, "sun-calendar-night.png"))
+    s_cal.append(sp.evaluate("[document.body.classList.contains('skynight'), getComputedStyle(document.querySelector('#c-strip .on .dn')).boxShadow]"))
+    sp.evaluate("window.launcherBack()"); sp.wait_for_timeout(500)
     sp.click("#title"); sp.click("#tonebtn"); sp.wait_for_timeout(400)
     sp.click('#o-mode button[data-m="solid"]'); sp.wait_for_timeout(300)
     s_back = sp.evaluate("[document.body.classList.contains('sun'), window.MOCK_FILES_THEME, getComputedStyle(document.querySelector('#mh .t')).backgroundColor]")
@@ -266,4 +369,13 @@ print("sun: strongest tile color at midday", s_tiles_day, "| at night", s_tiles_
 print("claude: short pull [open, hidden, screen]:", p_short, "| swiped up [open, screen, tiles, ring slices, projects, requests, meta, idle]:", p_open)
 print("claude: memory ring legend:", p_mem, "| swiped down [open, hidden, screen]:", p_down, "| Back [used, open, hidden]:", p_back, "| the file gone, last numbers kept [warned, list hidden]:", p_none)
 print("claude in Sun mode: midday tile", s_claude[0], "| night [skynight, tile edge]:", s_claude[1])
+print("calendar: short pull [open, hidden, screen]:", k_short, "| swiped right [open, screen, view, on today, week days, today's title, today's events, a Join, meta]:", k_open)
+print("calendar: week strip swiped left [days moved, Today brings it back and it stays open]:", k_week)
+print("calendar: Stand-up [title, calendar, when, Join, answers, this/every, people, links in notes]:", k_event)
+print("calendar: after Tentative:", repr(k_said), "| asked Android for:", k_calls, "| Back with the details open [calendar open, sheet]:", k_back1)
+print("calendar: views [events, day columns, now line, month cells, strip hidden]:", k_views, "| month swiped [months moved, open]:", k_month, "| 3 days swiped [days moved, open]:", k_days)
+print("calendar: new event from an empty hour [form, start, end, calendar, reminder]:", k_new[:5], "| saved:", k_new[5:])
+print("calendar: Family hidden [events before, after, hide list, shown again]:", k_hide, "| color [picker, saved, swatch]:", k_color)
+print("calendar: away [swipe left], [Back used, open], [name on the left]:", k_away, "| not allowed [allowed, Allow button, + hidden, asked], then allowed:", k_perm)
+print("calendar in Sun mode: picked day midday", s_cal[0], "| night [skynight, edge]:", s_cal[1])
 print("errors:", errors or "none")

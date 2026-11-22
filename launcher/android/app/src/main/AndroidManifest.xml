@@ -10,6 +10,10 @@
     <!-- 1.4.0: Sun mode works out the sky where you are. Approximate location only (about 2 km), asked when you pick Sun;
          the place stays on the phone. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 1.6.0: the calendar on the right swipe: every calendar on the phone, read where Android keeps them. Writing is for
+         a new event and for answering an invitation; each account's app syncs it. Android asks once, on the first swipe. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- Optional: how much each app is used, so the map can size apps by use. Granted by you in Android's settings. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <!-- Uninstall from an app's long press (Android always asks you to confirm) -->

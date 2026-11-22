@@ -42,6 +42,15 @@
     </div>
   </div>
 </section>
+<section class="cal" id="cal" aria-label="Calendar" hidden>
+  <div class="chead">
+    <div class="ctop"><h2 id="c-title" role="button" tabindex="0" title="Home">Calendar</h2><div class="meta" id="c-meta"></div><button type="button" class="ctoday" id="c-today" aria-label="Today"><span id="c-todayn"></span></button></div>
+    <div class="ctools"><div class="seg" id="c-views" role="group" aria-label="View"><button type="button" data-v="agenda" aria-pressed="true">Agenda</button><button type="button" data-v="day" aria-pressed="false">Day</button><button type="button" data-v="3day" aria-pressed="false">3 days</button><button type="button" data-v="month" aria-pressed="false">Month</button></div><button type="button" class="btn" id="c-cals">Calendars</button></div>
+    <div class="cstrip" id="c-strip"></div>
+  </div>
+  <div class="cbody" id="c-body"></div>
+  <button type="button" class="cfab" id="c-new" aria-label="New event"><i></i></button>
+</section>
 
 <div class="dial" id="dial" hidden></div>
 <div class="results" id="results" hidden></div>
