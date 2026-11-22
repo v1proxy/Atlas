@@ -69,7 +69,7 @@ const savePref = (key, value) => fire("prefs.set", { key, value });
 window.onLauncherEvent = ev => {
   if (!ev) return;
   if (ev.type === "home") { endSession(); skyPaint(true); return goHome(); }
-  if (ev.type === "pause") return endSession();                       // Atlas went to the background
+  if (ev.type === "pause") { closeHA(true); return endSession(); }    // Atlas went to the background (Home Assistant's tile goes too)
   if (ev.type === "apps") return loadApps().then(refreshScreen);
   if (ev.type === "pins") return loadPrefs().then(() => { if (dialOpen()) openDial(dialMode, true); });
   if (ev.type === "resume") { if (theme().mode === "sun") loadPlace(); if (CAL.open) loadCal(); return refresh(); }
@@ -463,7 +463,7 @@ function show(screen) {
   $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
   $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
   $("#q").placeholder = screen === "apps" ? "Find an app, or search Google" : "Find an app or file, or search Google";
-  closeSheet(); hideResults(); closeDial(); closeProcs(true); closeCal(true);
+  closeSheet(); hideResults(); closeDial(); closeProcs(true); closeCal(true); closeHA(true);
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
   else if (screen === "settings") renderSettings();
   else renderHome();
@@ -2278,6 +2278,66 @@ sideSwipe($("#c-body"), t => !!(t.closest && t.closest(".ctime, .cmonth")), dir 
     const c = e.changedTouches && e.changedTouches[0], dx = c ? c.clientX - s.x : 0, v = dx / Math.max(1, Date.now() - s.at);
     const go = !cancel && (s.opening ? (dx > s.w * .2 || v > .45) : (-dx > s.w * .2 || v < -.45));
     if (s.opening === go) openCal(); else closeCal();
+  };
+  document.addEventListener("touchend", e => end(e, false), { passive: true });
+  document.addEventListener("touchcancel", e => end(e, true), { passive: true });
+})();
+
+// ---- Home Assistant (1.6.1): swipe left on Home for the Home Assistant app -------------------------------------------
+// The mirror of the calendar: Home Assistant's tile, in the boxes' color (the sky in Sun mode), comes in from the right
+// with the finger. Let go past a fifth of the screen, or with a flick, and the app opens from the tile; otherwise it
+// springs back. The tile goes once Atlas is behind the app, so Home is as it was when you come back.
+const HA = { on: false, hideT: 0, gestureAt: 0 };
+const HA_PKG = /^io\.homeassistant\.companion\.android(\.minimal)?$/;            // the Play Store app, or the minimal one
+const haApp = () => L.apps.filter(a => HA_PKG.test(a.pkg)).sort((x, y) => (x.work ? 1 : 0) - (y.work ? 1 : 0))[0]
+  || L.apps.find(a => /^home assistant$/i.test(a.label));
+function openHA() {
+  const p = $("#ha"), a = haApp();
+  clearTimeout(HA.hideT); HA.on = true;
+  p.classList.add("anim"); p.style.transform = "translateX(0px)";
+  $("#ha-v").textContent = a ? "Opening" : "Not on this phone";
+  if (!a) { haptic("long"); HA.hideT = setTimeout(() => closeHA(), 1200); return; }
+  haptic("tick");
+  setTimeout(() => launch(a, $("#ha .hatile")), 140);                            // once the tile is in place
+  HA.hideT = setTimeout(() => closeHA(true), 2500);                              // in case Android says no
+}
+function closeHA(now) {
+  const p = $("#ha"); if (!p) return;
+  clearTimeout(HA.hideT); HA.on = false;
+  if (now || p.hidden || reduced()) { p.classList.remove("anim"); p.style.transform = ""; p.hidden = true; return; }
+  p.classList.add("anim"); p.style.transform = "translateX(100%)";
+  HA.hideT = setTimeout(() => { if (!HA.on) { p.hidden = true; p.classList.remove("anim"); p.style.transform = ""; } }, 260);
+}
+(function swipeHA() {
+  const panel = $("#ha");
+  let g = null;
+  document.addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1 || CAL.open || PR.open || HA.on) return;
+    const t = e.touches[0], el = e.target && e.target.closest ? e.target : null;
+    if (!el || L.screen !== "home" || L.q || dialOpen() || document.body.classList.contains("sheeton") || !el.closest("#home") || el.closest("#hub")) return;
+    g = { x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }      // up or down: the Claude panel
+      if (Math.abs(dx) < 10) return;
+      if (dx > 0) { g = null; return; }                                                 // to the right: the calendar
+      g.on = true; g.w = innerWidth; HA.gestureAt = Date.now(); clearTimeout(HA.hideT);
+      $("#ha-v").textContent = haApp() ? "Let go to open" : "Not on this phone";
+      panel.classList.remove("anim"); panel.style.transform = `translateX(${g.w}px)`; panel.hidden = false;
+    }
+    e.preventDefault();
+    panel.style.transform = `translateX(${Math.max(0, g.w + dx)}px)`;
+  }, { passive: false });
+  const end = (e, cancel) => {
+    const s = g; g = null;
+    if (!s || !s.on) return;
+    HA.gestureAt = Date.now();
+    const c = e.changedTouches && e.changedTouches[0], dx = c ? c.clientX - s.x : 0, v = dx / Math.max(1, Date.now() - s.at);
+    if (!cancel && (-dx > s.w * .2 || v < -.45)) openHA(); else closeHA();
   };
   document.addEventListener("touchend", e => end(e, false), { passive: true });
   document.addEventListener("touchcancel", e => end(e, true), { passive: true });
