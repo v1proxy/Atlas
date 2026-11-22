@@ -80,3 +80,13 @@ $sha = (Get-FileHash -Algorithm SHA256 (Join-Path $dist "atlas-launcher.apk")).H
 $json = [ordered]@{ version = $name; code = $code; notes = $Notes; sha256 = $sha; built = (Get-Date -Format s) } | ConvertTo-Json
 [IO.File]::WriteAllText((Join-Path $dist "latest.json"), $json)     # UTF-8 without a byte-order mark
 Write-Host "Atlas launcher $name ($code) is in $dist"
+# 6. And into the updates folder in the cloud drive, if launcher.json names one: the phones find it there (Settings,
+#    Version and updates) through Atlas, with nothing to copy onto the server.
+$cfg = Join-Path $here "launcher.json"
+$upd = if (Test-Path $cfg) { (Get-Content -Raw $cfg | ConvertFrom-Json).updates } else { $null }
+if ($upd -and (Test-Path -LiteralPath (Split-Path -Parent $upd))) {
+  New-Item -ItemType Directory -Force $upd | Out-Null
+  Copy-Item -Force (Join-Path $dist "atlas-launcher.apk") (Join-Path $upd "atlas-launcher.apk")
+  Copy-Item -Force (Join-Path $dist "latest.json") (Join-Path $upd "latest.json")          # last, so a phone never sees a version without its file
+  Write-Host "and in $upd, where the phones look for updates"
+}

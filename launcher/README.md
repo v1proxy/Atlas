@@ -68,7 +68,7 @@ The Claude panel reads `claude-processes.json` from Atlas's state folder in your
 3. Copy `launcher_dist\` to Atlas wherever your phone reaches it (the server in server mode: `/opt/atlas/app/launcher_dist/`).
 4. On the phone, with Tailscale on, open `https://<your Atlas>/launcher` in Chrome, download, install, open Atlas and accept **Make Atlas the Home screen**.
 
-Later versions: raise `atlasVersionCode` and `atlasVersionName` in `android/gradle.properties`, build again with `-Notes "what changed"`, copy `launcher_dist\` again, and on the phone use Settings, Version and updates.
+Later versions: raise `atlasVersionCode` and `atlasVersionName` in `android/gradle.properties`, build again with `-Notes "what changed"`, copy `launcher_dist\` again, and on the phone use Settings, Version and updates. With `updates` set in `launcher.json` to a folder in your cloud drive (for example `G:\My Drive\.atlas\launcher`), the build also goes there and the phone finds it through Atlas, so there is nothing to copy onto the server. Android installs only an update signed with your key.
 
 From 2027 Google requires apps installed outside the Play Store to come from a registered developer. A free registration for hobbyists covers up to 20 devices; register the app's signing key before then. Some phones (Xiaomi, Redmi, POCO) may switch gesture navigation off while a launcher other than their own is the Home screen.
 
@@ -83,6 +83,7 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.5.1 (2026-11-22).** Updates also come from your cloud drive: Settings, Version and updates looks in `launcher.json`'s `updates` folder too (through Atlas), and build.ps1 puts each build there, so a new version needs nothing copied onto the server.
 - **1.5.0 (2026-11-21).** Swipe up on Home for Claude on your PC: the processes, the memory, CPU and GPU they use, a ring of who uses what (CPU, GPU or memory) and the projects with their requests, from the numbers the PC saves every 2 minutes. It follows the finger; swipe down or Back puts it away. Its tiles take the boxes' color, or the sky in Sun mode.
 - **1.4.0 (2026-11-20).** Sun, in Settings, Appearance: the colors follow the sky where you are, black at night, through dawn, sunrise, the day, sunset and dusk, flowing without steps. The maps follow it at their usual brightness. Uses the phone's approximate location, asked when you pick Sun.
 - **1.3.1 (2026-11-20).** One Search Google row, at the end. WhatsApp, Signal and Telegram are found on more phones: each opens straight in its app, also where the phone's contacts app or a second copy of WhatsApp takes the same rows.

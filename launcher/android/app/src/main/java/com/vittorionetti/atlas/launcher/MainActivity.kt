@@ -77,8 +77,10 @@ class MainActivity : Activity() {
     @Volatile private var filesTheme: String? = null          // Sun mode: the sky for Atlas in Files, sent by the home page
     private var filesThemeDirty = false
     private var latest: JSONObject? = null
+    private var latestDir: String? = null       // where the newest build is: null for the server, else the drive folder
     private var cfgServer = ""
     private var cfgPair = ""
+    private var cfgUpdates = ""
     private val iconPx get() = (48 * resources.displayMetrics.density).roundToInt().coerceIn(96, 192)
 
     companion object {
@@ -98,7 +100,7 @@ class MainActivity : Activity() {
         apps = Apps(this, prefs)
         try {
             val j = JSONObject(assets.open("launcher.json").bufferedReader().use { it.readText() })
-            cfgServer = j.optString("server").trimEnd('/'); cfgPair = j.optString("pair")
+            cfgServer = j.optString("server").trimEnd('/'); cfgPair = j.optString("pair"); cfgUpdates = j.optString("updates").trimEnd('\\')
         } catch (e: Exception) { /* a build without settings: the address can be set from Options */ }
         server = Server { prefs.string("server", cfgServer).trimEnd('/').takeIf { it.startsWith("https://") } ?: "" }
 
@@ -644,17 +646,30 @@ class MainActivity : Activity() {
         } catch (e: Exception) { Toast.makeText(this, "Couldn't download it", Toast.LENGTH_SHORT).show() }
     }
 
-    // ---- new versions, from your Atlas server ---------------------------------------------------------------
+    // ---- new versions: from your Atlas server, or from the updates folder in your cloud drive ---------------------
+    // Two places, and the newer build wins: the server's own launcher_dist (/launcher/...), and launcher.json's "updates"
+    // folder in the cloud drive (for example G:\\My Drive\\.atlas\\launcher), read through Atlas like any other file. The
+    // second needs nothing copied onto the server: build.ps1 puts each build there. Android installs only an update
+    // signed with the same key, and the download must match latest.json's sha256.
     private fun checkUpdate(): JSONObject {
         val (code, body) = server.text("/launcher/latest.json")
         if (code == 401) throw IllegalStateException("sign in to Atlas first")
-        if (code != 200) throw IllegalStateException(if (code == 0) "can't reach Atlas" else "there is no launcher build on Atlas")
-        val j = JSONObject(body); latest = j
+        if (code == 0) throw IllegalStateException("can't reach Atlas")
+        var best: JSONObject? = if (code == 200) runCatching { JSONObject(body) }.getOrNull() else null
+        var from: String? = null
+        if (cfgUpdates.isNotEmpty()) {
+            val (c2, b2) = server.text("/api/text?path=" + Uri.encode("$cfgUpdates\\latest.json"))
+            val d = if (c2 == 200) runCatching { JSONObject(JSONObject(b2).optString("text")) }.getOrNull() else null
+            if (d != null && (best == null || d.optInt("code") > best.optInt("code"))) { best = d; from = cfgUpdates }
+        }
+        val j = best ?: throw IllegalStateException("there is no launcher build on Atlas")
+        latest = j; latestDir = from
         return JSONObject().put("available", j.optInt("code") > BuildConfig.VERSION_CODE).put("version", j.optString("version")).put("notes", j.optString("notes"))
     }
 
     private fun installUpdate() {
-        val j = latest ?: JSONObject(server.text("/launcher/latest.json").second)
+        if (latest == null) checkUpdate()
+        val j = latest ?: throw IllegalStateException("there is no launcher build on Atlas")
         if (!packageManager.canRequestPackageInstalls()) {
             runOnUiThread {
                 Toast.makeText(this, "Allow Atlas to install its updates, then tap Update again", Toast.LENGTH_LONG).show()
@@ -663,7 +678,8 @@ class MainActivity : Activity() {
             return
         }
         val f = File(cacheDir, "atlas-launcher.apk")
-        val c = server.open("/launcher/atlas-launcher.apk")
+        val dir = latestDir
+        val c = server.open(if (dir != null) "/api/file?path=" + Uri.encode("$dir\\atlas-launcher.apk") else "/launcher/atlas-launcher.apk")
         try {
             if (c.responseCode != 200) throw IllegalStateException("Atlas answered " + c.responseCode)
             c.inputStream.use { input -> f.outputStream().use { input.copyTo(it) } }
