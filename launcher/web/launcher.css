@@ -268,3 +268,205 @@ dt { color: var(--dim); font: 11px/1.9 var(--f-mono); text-transform: uppercase;
 .mh::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1px; margin-top: -.5px; background: var(--ink); }
 .mh b { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--bg); border: 1px solid var(--ink); box-shadow: 0 0 0 2px var(--bg); }
 .btn.quit { border-color: #C8362F; color: #FAC4C6; }
+
+/* ---- Claude on the PC (1.5.0): swipe up on Home, swipe down to put it away ---------------------------------------------- */
+/* The panel comes up over the whole screen and follows the finger (launcher.js). Its tiles are the boxes' color, or the
+   sky in Sun mode (overhead at the top of each tile, the horizon at its bottom); the ring takes the four shades. */
+.procs { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: grid; grid-template-rows: auto minmax(0, 1fr); transform: translateY(100%); will-change: transform;
+  --r0: oklch(.36 calc(var(--c) * .65) var(--h)); --r5: oklch(.82 calc(var(--c) * .5) var(--h)); }
+.procs.anim { transition: transform .26s cubic-bezier(.2, .8, .2, 1); }
+.phead { position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 12px 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.phead h2 { font: 300 22px/1 var(--f-body); margin: 0; white-space: nowrap; }
+.phead .warn { color: var(--warn); }
+.phead .btn { flex: none; }
+.phead .btn.on { border-color: var(--ink); }                                  /* Resume all stands out while paused */
+.pstate { margin: 0 4px; font: 12px/1.45 var(--f-mono); color: var(--dim); }
+.pstate.warn { color: var(--warn); }
+.prow .ptag { font: 400 10px var(--f-mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: var(--warn); margin-left: 6px; white-space: nowrap; }
+.pgrab { position: absolute; left: 50%; top: 0; width: 64px; height: 16px; margin-left: -32px; padding: 0; border: 0; background: none; cursor: pointer; }
+.pgrab::after { content: ""; position: absolute; left: 16px; right: 16px; top: 7px; height: 1px; background: var(--ink); }
+.pbody { overflow: auto; overscroll-behavior: contain; padding: 12px 8px calc(20px + env(safe-area-inset-bottom, 0px)); }
+.pmain { display: grid; gap: 15px; align-content: start; }
+.pnone { color: var(--dim); font-size: 13px; margin: 8px 4px; }
+.ptiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; container-type: inline-size; }
+@container (max-width: 520px) { .ptile:first-child { grid-column: 1 / -1; min-height: 0; } }
+.ptile { background: var(--r2); color: var(--box-ink); padding: 12px 14px 14px; min-height: 128px; display: flex; flex-direction: column; min-width: 0; }
+body.sun .ptile { background: linear-gradient(to bottom, var(--s0) 0%, var(--s1) 24.5%, var(--s2) 49%, var(--s3) 51%, var(--s4) 75.5%, var(--s5) 100%); }
+body.sun.skynight .ptile { box-shadow: inset 0 0 0 1px var(--line); }        /* at night the sky is black, like the page */
+.ptile .k { font: 400 11px/1.25 var(--f-mono); text-transform: uppercase; letter-spacing: .05em; opacity: .9; }
+.ptile .v { font: 300 40px/1.05 var(--f-body); letter-spacing: -.01em; margin-top: auto; padding-top: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ptile .s { font: 12px/1.45 var(--f-mono); opacity: .85; margin-top: 4px; }
+.psec { border-top: 1px solid var(--line); padding: 10px 4px 0; }
+.psh { display: flex; align-items: center; gap: 10px; min-height: var(--ctl); margin-bottom: 8px; }
+.psh h3 { flex: 1 1 auto; font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0; }
+.pring { display: grid; place-items: center; min-height: 180px; }
+.pring svg { display: block; overflow: visible; }
+.pring text { text-anchor: middle; fill: var(--ink); font-family: var(--f-body); }
+.pring text.rk { font: 10px var(--f-mono); letter-spacing: .05em; fill: var(--dim); }
+.pring text.rv { font-weight: 300; }
+.plegend { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+.plegend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; line-height: 1.3; }
+.plegend .sw { width: 10px; height: 10px; }
+.plegend .sw.hatch { background: repeating-linear-gradient(135deg, var(--dim) 0 1.5px, transparent 1.5px 4px); }
+.plegend .sw.edge { box-shadow: inset 0 0 0 1px var(--line); }
+.plegend .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plegend .vl { font: 12px var(--f-mono); font-variant-numeric: tabular-nums; }
+.plegend li.muted .nm { color: var(--dim); }
+.plist { display: grid; }
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) 54px 48px 42px; gap: 8px; align-items: start; padding: 7px 4px; }
+.prow .num { text-align: right; font: 12px/1.6 var(--f-mono); font-variant-numeric: tabular-nums; }
+.prow.phd { font: 400 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); border-bottom: 1px solid var(--line); padding-top: 0; }
+.prow.phd .num { font: inherit; }
+.prow.pj { font: 300 17px/1.3 var(--f-body); border-bottom: 1px solid var(--line); padding-top: 14px; }
+.prow.rq { font-size: 14px; padding-left: 16px; }
+.prow .t { min-width: 0; overflow-wrap: anywhere; }
+.prow small { display: block; font-size: 12px; line-height: 1.4; color: var(--dim); margin-top: 2px; }
+.pidle { font: 11px/1.5 var(--f-mono); color: var(--dim); margin: 14px 4px 0; }
+@media (prefers-reduced-motion: reduce) { .procs.anim { transition: none; } }
+
+/* ---- the calendar (1.6.0): swipe right on Home, swipe left or Back to put it away --------------------------------------- */
+/* It comes in from the left over the whole screen and follows the finger (launcher.js). Each calendar keeps its own hue
+   at the tiles' brightness (--ec, from launcher.js); the day picked takes the boxes' color, or the sky in Sun mode; today
+   is underlined, like a pressed button. */
+.cal { position: fixed; inset: 0; z-index: 31; background: var(--bg); display: grid; grid-template-rows: auto minmax(0, 1fr); transform: translateX(-100%); will-change: transform; }
+.cal.anim { transition: transform .26s cubic-bezier(.2, .8, .2, 1); }
+.chead { display: grid; gap: 8px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.ctop { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ctop h2 { font: 300 22px/1 var(--f-body); margin: 0; white-space: nowrap; cursor: pointer; transition: opacity .12s ease; }
+.ctop h2:active { opacity: .5; }
+.ctoday { width: var(--ctl); height: var(--ctl); flex: none; padding: 0; border: 1px solid var(--ink); border-radius: 50%; background: none; color: var(--ink);
+  font: 500 11px/1 var(--f-mono); font-variant-numeric: tabular-nums; cursor: pointer; }
+.ctoday:active { transform: scale(.94); }
+.ctools { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ctools .btn { margin-left: auto; height: var(--ctl); padding: 0 10px; font-size: 12px; }
+.cstrip { margin: 0 -6px; touch-action: pan-y; }
+.cweek, .cmhead, .cmgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cweek button, .cmgrid button { display: grid; justify-items: center; align-content: start; gap: 3px; background: none; border: 0; color: var(--ink); font: inherit; cursor: pointer; padding: 2px 0 8px; min-width: 0; }
+.cweek .dw, .cmhead span { font: 400 10px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); text-align: center; }
+.cweek .dn, .cmgrid .dn { width: 34px; height: 30px; display: grid; place-items: center; font: 300 18px/1 var(--f-body); font-variant-numeric: tabular-nums; }
+.cweek .today .dn, .cmgrid .today .dn { box-shadow: inset 0 -2px 0 var(--ink); }
+.cweek .on .dn, .cmgrid .on .dn { background: var(--r3); color: var(--box-ink); }
+.cweek .on.today .dn, .cmgrid .on.today .dn { box-shadow: inset 0 -2px 0 var(--box-ink); }
+body.gradient .cweek .on .dn, body.gradient .cmgrid .on .dn { background: var(--top-bg); }
+body.sun .cweek .on .dn, body.sun .cmgrid .on .dn { background: linear-gradient(to bottom, var(--s0), var(--s2)); color: #FFFFFF; }
+body.sun.skynight .cweek .on .dn, body.sun.skynight .cmgrid .on .dn { box-shadow: inset 0 0 0 1px var(--line); }
+.dots { display: flex; gap: 2px; height: 4px; }
+.dots i { display: block; width: 4px; height: 4px; }
+.cbody { position: relative; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+.cnote { margin: 0; padding: 18px 12px; color: var(--dim); font-size: 13px; }
+.cperm { display: grid; gap: 10px; padding: 24px 16px; }
+.cperm h3 { margin: 0; font: 300 22px/1.2 var(--f-body); }
+.cperm p { margin: 0; }
+
+/* Agenda: a day's title stays on top while its events scroll under it. */
+.cday + .cday { border-top: 1px solid var(--line); }
+.cdh { position: sticky; top: 0; z-index: 2; margin: 0; padding: 10px 12px 6px; background: var(--bg); font: 400 11px/1.3 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.cday.today .cdh { color: var(--ink); }
+.cnone { margin: 0; padding: 0 12px 12px 84px; color: var(--dim); font-size: 13px; }
+.crow { display: grid; grid-template-columns: 62px 4px minmax(0, 1fr) auto; column-gap: 10px; align-items: stretch; width: 100%; padding: 7px 12px; text-align: left;
+  background: none; border: 0; color: var(--ink); font: inherit; cursor: pointer; }
+.crow:active { background: color-mix(in oklab, var(--ink) 8%, var(--bg)); }
+.crow .ct { display: grid; align-content: start; font: 12px/1.4 var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crow .ct b { font-weight: 400; }
+.crow .ct small { font-size: 11px; color: var(--dim); }
+.crow.live .ct b { font-weight: 500; }
+.crow .cbar { display: block; min-height: 38px; background: var(--ec); }
+.crow .cm { display: grid; align-content: start; min-width: 0; }
+.crow .cn { font: 15px/1.35 var(--f-body); overflow-wrap: anywhere; }
+.crow .cm small { font-size: 12px; line-height: 1.45; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow .cj { align-self: center; padding: 8px 11px; border: 1px solid var(--ink); border-radius: 4px; font: 400 12px/1 var(--f-body); color: var(--ink); }
+/* As in Outlook: tentative is hatched, not answered yet is an outline, declined and canceled are struck through. */
+.crow.maybe .cbar { background: repeating-linear-gradient(135deg, var(--ec) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--ec); }
+.crow.invited .cbar { background: none; box-shadow: inset 0 0 0 1px var(--ec); }
+.crow.declined .cn, .crow.canceled .cn { text-decoration: line-through; color: var(--dim); }
+.crow.declined .cbar, .crow.canceled .cbar { opacity: .45; }
+
+/* Day and 3 days: hours down the side, the days' columns, all-day events on top, a line at the time now. */
+.ctime { --gut: 48px; }
+.ccols { position: sticky; top: 0; z-index: 3; display: grid; grid-template-columns: var(--gut) repeat(var(--n), minmax(0, 1fr)); background: var(--bg); border-bottom: 1px solid var(--line); }
+.cch { display: grid; align-content: start; gap: 2px; min-width: 0; padding: 4px 2px 5px 1px; border-left: 1px solid transparent; }
+.cchd { padding: 2px 4px; font: 400 11px/1.4 var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+.cchd b { font: 300 16px/1 var(--f-body); color: var(--ink); }
+.cch.today .cchd { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.cad, .cadmore { display: block; width: 100%; min-width: 0; padding: 3px 6px; border: 0; text-align: left; font: 12px/1.3 var(--f-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cad { background: var(--ec); color: var(--box-ink); }
+.cadmore { background: none; color: var(--dim); font-family: var(--f-mono); font-size: 11px; }
+.cgrid { position: relative; display: grid; grid-template-columns: var(--gut) repeat(var(--n), minmax(0, 1fr)); }
+.chours { position: relative; }
+.chours span { position: absolute; right: 6px; transform: translateY(-50%); font: 10px/1 var(--f-mono); color: var(--dim); white-space: nowrap; }
+.cgcol { position: relative; border-left: 1px solid var(--line); background: repeating-linear-gradient(to bottom, color-mix(in oklab, var(--line) 70%, transparent) 0 1px, transparent 1px var(--hh)); }
+.cev { position: absolute; display: block; margin-left: 1px; padding: 3px 5px; border: 0; text-align: left; overflow: hidden; background: var(--ec); color: var(--box-ink);
+  font: 12px/1.25 var(--f-body); box-shadow: 0 0 0 1px var(--bg); cursor: pointer; }
+.cev b { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.cev small { display: block; font: 11px/1.3 var(--f-mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cev.maybe, .cad.maybe { background: repeating-linear-gradient(135deg, var(--ec) 0 6px, color-mix(in oklab, var(--ec) 55%, var(--bg)) 6px 10px); }
+.cev.invited, .cad.invited { background: color-mix(in oklab, var(--ec) 22%, var(--bg)); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ec), 0 0 0 1px var(--bg); }
+.cev.declined, .cev.canceled, .cad.declined, .cad.canceled { background: var(--bg); color: var(--dim); box-shadow: inset 0 0 0 1px var(--line); text-decoration: line-through; }
+.cnow { position: absolute; left: -1px; right: 0; height: 2px; margin-top: -1px; background: var(--ink); z-index: 2; pointer-events: none; }
+.cnow::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+
+/* Month: the weeks, a dot for each calendar with something that day, and the day picked listed under it. */
+.cmonth { padding: 2px 6px 8px; border-bottom: 1px solid var(--line); touch-action: pan-y; }
+.cmhead { padding: 8px 0 4px; }
+.cmgrid button { padding: 3px 0 7px; }
+.cmgrid .out { opacity: .4; }
+
+/* + for a new event: the circle and the cross of Home's dial. */
+.cfab { position: absolute; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 6; width: 56px; height: 56px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--ink); border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 4px var(--bg); cursor: pointer; }
+.cfab i { position: relative; display: block; width: 18px; height: 18px; }
+.cfab i::before, .cfab i::after { content: ""; position: absolute; left: 50%; top: 50%; background: var(--ink); }
+.cfab i::before { width: 18px; height: 1px; margin: -.5px 0 0 -9px; }
+.cfab i::after { width: 1px; height: 18px; margin: -9px 0 0 -.5px; }
+.cfab:active { transform: scale(.94); }
+
+/* An event's details, Calendars and a new event, in the sheet. */
+.cchip { display: inline-flex; align-items: center; gap: 7px; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.cchip i { display: block; width: 9px; height: 9px; }
+#panel h2.declined, #panel h2.canceled { text-decoration: line-through; color: var(--dim); }
+.cwhen { display: grid; gap: 2px; font-size: 15px; }
+.cwhen b { font-weight: 500; }
+.cwhen span { font: 12px/1.5 var(--f-mono); color: var(--dim); }
+.cplace { display: grid; gap: 2px; width: 100%; padding: 10px 0; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: none; color: var(--ink);
+  text-align: left; font: 15px/1.35 var(--f-body); overflow-wrap: anywhere; cursor: pointer; }
+.cplace:disabled { cursor: default; }
+.cplace small, .cpeople h4, .cnotes h4 { margin: 0; font: 400 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.crsvp { display: grid; gap: 8px; }
+.crsvp .seg { justify-self: start; }
+.crsvp .seg button { height: 36px; padding: 0 14px; font-size: 13px; }
+.cpeople { display: grid; gap: 6px; }
+.cpeople ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.cpeople li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; font-size: 14px; }
+.cpeople .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpeople .st { font: 11px/1.9 var(--f-mono); color: var(--dim); }
+.cpeople .btn { justify-self: start; }
+.cnotes { display: grid; gap: 6px; }
+.cnotes .tx { max-height: 230px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; -webkit-user-select: text; user-select: text; }
+.cnotes.all .tx { max-height: none; }
+.cnotes .btn { justify-self: start; }
+.clink { display: inline; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; overflow-wrap: anywhere; cursor: pointer; }
+.cacct { display: grid; }
+.cacct h4 { margin: 6px 0 0; font: 400 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.cacct h4 span { letter-spacing: 0; text-transform: none; }
+.ccal { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--line);
+  background: none; color: var(--ink); text-align: left; font: 15px var(--f-body); cursor: pointer; }
+.ccal .sw { display: block; width: 14px; height: 14px; box-shadow: inset 0 0 0 2px var(--cc); }
+.ccal.on .sw { background: var(--cc); }
+.ccal .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccal:not(.on) .nm { color: var(--dim); }
+.ccal .st { font: 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.ccal.press { background: color-mix(in oklab, var(--ink) 8%, var(--bg)); }
+.cswatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.csw { width: 42px; height: 42px; padding: 0; border: 0; cursor: pointer; }
+.csw.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ink); }
+.cform { display: grid; gap: 10px; }
+.cform input[type=text], .cform input[type=date], .cform input[type=time], .cform select, .cform textarea { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface); color: var(--ink); font: 15px var(--f-body); outline: none; }
+.cform input:focus, .cform select:focus, .cform textarea:focus { border-color: var(--dim); }
+.cform .t { font: 300 20px var(--f-body); }
+.cform textarea { min-height: 72px; resize: vertical; -webkit-user-select: text; user-select: text; }
+.cform label { display: grid; gap: 3px; font: 400 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.cform .two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 8px; }
+.cform .ccheck { display: flex; align-items: center; gap: 10px; font: 15px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.cform .ccheck input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .cal.anim { transition: none; } }

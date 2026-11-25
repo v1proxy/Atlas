@@ -63,6 +63,12 @@ async function server(path) {
   if (r.status !== 200) throw new Error(r.status ? "Atlas answered " + r.status : "can't reach Atlas");
   return JSON.parse(r.body);
 }
+async function serverPost(path, obj) {                                   // a change on Atlas (the app adds its X-Atlas header)
+  const r = await native("server", { path, method: "POST", body: JSON.stringify(obj || {}) });
+  if (r.status === 401) throw new Error("not signed in");
+  if (r.status !== 200) throw new Error(r.status ? "Atlas answered " + r.status : "can't reach Atlas");
+  return JSON.parse(r.body || "{}");
+}
 const savePref = (key, value) => fire("prefs.set", { key, value });
 
 // Android tells the page about the world through window.onLauncherEvent.
@@ -72,13 +78,16 @@ window.onLauncherEvent = ev => {
   if (ev.type === "pause") return endSession();                       // Atlas went to the background
   if (ev.type === "apps") return loadApps().then(refreshScreen);
   if (ev.type === "pins") return loadPrefs().then(() => { if (dialOpen()) openDial(dialMode, true); });
-  if (ev.type === "resume") { if (theme().mode === "sun") loadPlace(); return refresh(); }
+  if (ev.type === "resume") { if (theme().mode === "sun") loadPlace(); if (CAL.open) loadCal(); return refresh(); }
   if (ev.type === "place") return loadPlace();                        // a new place, or location allowed (or taken back)
   if (ev.type === "paired") return loadFiles().then(refreshScreen);
+  if (ev.type === "calendar") { if (CAL.open || CAL.shown) loadCal(); else if (L.screen === "settings" && $("#o-cal")) renderSettings(); return; }   // a change, or allowed
   if (ev.type === "contacts") { if (L.q.trim() && L.screen !== "apps") findContacts(L.q); return; }   // allowed (or taken back)
 };
 // Back: true when this page used it (closing the dial, a sheet, a search, zooming out, leaving the Apps map).
 window.launcherBack = () => {
+  if (CAL.open) { if (document.body.classList.contains("sheeton")) closeSheet(); else closeCal(); return true; }
+  if (PR.open) { closeProcs(); return true; }
   if (dialOpen()) { closeDial(true); return true; }
   if (document.body.classList.contains("sheeton")) { closeSheet(); return true; }
   if (L.q) { clearSearch(); return true; }
@@ -218,6 +227,11 @@ async function loadPrefs() {
     if (Array.isArray(p.cats) && p.cats.length && !L.atlasCats.length) L.atlasCats = p.cats.filter(c => typeof c === "string");
     const ce = p.catEdits || {}, strs = x => Array.isArray(x) ? x.filter(c => typeof c === "string" && c.trim()) : [];
     L.catEdits = { add: strs(ce.add), del: strs(ce.del) };
+    const cp = p.cal && typeof p.cal === "object" ? p.cal : {};
+    CAL.view = CAL_VIEWS.includes(cp.view) ? cp.view : "agenda";
+    CAL.hide = Array.isArray(cp.hide) ? cp.hide.filter(x => typeof x === "string") : [];
+    CAL.colors = cp.colors && typeof cp.colors === "object" ? Object.fromEntries(Object.entries(cp.colors).filter(([, v]) => NAMED[v])) : {};
+    CAL.def = typeof cp.def === "string" ? cp.def : ""; CAL.declined = cp.declined === true;
     L.use = {};
     if (p.use && typeof p.use === "object") for (const [k, v] of Object.entries(p.use)) if (Array.isArray(v) && isFinite(v[0]) && isFinite(v[1])) L.use[k] = [+v[0], +v[1]];
   } catch (e) { /* first run */ }
@@ -395,6 +409,7 @@ function skyPaint(jump) {
   r.setProperty("--sky-t", jump ? ".9s" : SKY_MS + "ms");
   SKY_AT.forEach((f, i) => r.setProperty("--s" + i, rgbCss(skyColor(s, f))));
   const top = labHC(s.z); r.setProperty("--h", top.h.toFixed(1)); r.setProperty("--c", top.c.toFixed(3));
+  document.body.classList.toggle("skynight", s.z[0] < .2);
   if (L.screen === "apps") $$("#map [data-tp]").forEach(el => tint(el, +el.dataset.tp));
   if (L.screen === "settings") paintSun();
   skyFiles(s, false);
@@ -454,7 +469,7 @@ function show(screen) {
   $("#home").hidden = screen !== "home"; $("#apps").hidden = screen !== "apps"; $("#settings").hidden = screen !== "settings";
   $("#title").textContent = screen === "apps" ? "Apps" : screen === "settings" ? "Settings" : "Atlas";
   $("#q").placeholder = screen === "apps" ? "Find an app, or search Google" : "Find an app or file, or search Google";
-  closeSheet(); hideResults(); closeDial();
+  closeSheet(); hideResults(); closeDial(); closeProcs(true); closeCal(true);
   if (screen === "apps") { setSeg("#views", "v", L.view); setSeg("#metric", "m", L.metric); renderApps(); crumbs(); }
   else if (screen === "settings") renderSettings();
   else renderHome();
@@ -636,12 +651,20 @@ function openPin(p) {
   if (p.key) { const a = L.byKey[p.key]; if (a) launch(a); else toast(`${p.label} is no longer on this phone`); }
   else { startSession(p.path); openFile(p.path, p.dir); }
 }
+// The circle: one tap opens the dial a quarter second later, once no second tap has come; two quick taps open the
+// phone's camera instead (1.7.0); holding opens the dial for taking names off. With the dial open, a tap closes it.
+const DOUBLE_TAP = 250;                                                   // ms from the first tap's lift to the second touch
 (function hubControl() {
   const hub = $("#hub");
-  let timer = 0, down = false, held = false;
+  let timer = 0, down = false, held = false, wait = 0, twice = false;
   const rest = () => turnCross(dialOpen() && dialMode === "edit" ? 45 : 0, 160);
   hub.addEventListener("pointerdown", e => {
-    e.preventDefault(); down = true; held = false;
+    e.preventDefault(); down = true; held = false; twice = false;
+    if (wait) {                                                          // the second of two quick taps: the camera
+      clearTimeout(wait); wait = 0; twice = true;
+      haptic("tick"); turnCross(0, 160); fire("camera.open");
+      return;
+    }
     hub.classList.add("press"); turnCross(45, 520);                      // the cross turns toward an × while you hold
     clearTimeout(timer);
     timer = setTimeout(() => { held = true; hub.classList.remove("press"); haptic("long"); openDial("edit"); }, 520);
@@ -650,9 +673,15 @@ function openPin(p) {
     clearTimeout(timer); hub.classList.remove("press");
     if (!down) return;
     down = false;
-    if (held) return;                                                    // the dial stays open to remove names
+    if (held || twice) return;                                           // the dial stays open to remove names; or the camera is on its way
     if (cancel) return rest();
-    if (dialOpen()) closeDial(true); else { haptic("tick"); openDial("open"); }
+    if (dialOpen()) return closeDial(true);
+    turnCross(crossAngle($("#hub i")), 1);                               // the cross holds still while a second tap may come
+    wait = setTimeout(() => {
+      wait = 0;
+      if (L.screen !== "home" || dialOpen()) return rest();              // something else opened meanwhile
+      haptic("tick"); openDial("open");
+    }, DOUBLE_TAP);
   };
   hub.addEventListener("pointerup", () => end(false));
   hub.addEventListener("pointercancel", () => end(true));
@@ -761,6 +790,8 @@ async function renderSettings() {
       : `<p class="note">Atlas isn't your Home screen yet.</p><div class="row"><button type="button" class="btn primary" id="o-home">Make Atlas the Home screen</button></div>`}</section>
     <section><h3>Usage</h3>${L.usage ? `<p class="note">Apps are sized by how much you use them, and apps unused for two months move to Superseded.</p>`
       : `<p class="note">Allow usage access and the apps you use most become the biggest tiles, and apps you stopped using move to Superseded. Nothing leaves the phone.</p><div class="row"><button type="button" class="btn" id="o-usage">Allow usage access</button></div>`}</section>
+    <section><h3>Calendar</h3><p class="note">Swipe right on Home for every calendar on this phone, personal and work, in one place.${info.calendar === false ? " Atlas needs your permission to read them." : ""}</p>
+      ${info.calendar === false ? `<div class="row"><button type="button" class="btn" id="o-cal">Allow calendars</button></div>` : ""}</section>
     <section><h3>Atlas</h3><p class="note">${signedIn ? `Signed in${L.files.generated ? ", map from " + esc(L.files.generated.replace("T", " ").slice(0, 16)) : ""}.` : err === "not signed in" ? "Not signed in to Atlas yet." : "Can't reach Atlas right now. Check that Tailscale is on."}</p>
       <div class="path">${esc(info.server || "")}</div>
       ${signedIn ? "" : `<label class="note" for="o-code">Pairing code</label><input id="o-code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false"><div class="row"><button type="button" class="btn" id="o-pair">Sign in to Atlas</button></div>`}</section>
@@ -781,6 +812,7 @@ async function renderSettings() {
   $$("#o-order button").forEach(b => b.onclick = () => { L.order = b.dataset.o; savePref("order", L.order); applyOrder(); applyTheme(); setSeg("#o-order", "o", L.order); paintLook(); });
   if ($("#o-home")) $("#o-home").onclick = () => fire("home.request");
   if ($("#o-usage")) $("#o-usage").onclick = () => fire("usage.request");
+  if ($("#o-cal")) $("#o-cal").onclick = () => fire("cal.allow");
   if ($("#o-pair")) $("#o-pair").onclick = () => { const c = $("#o-code").value.trim(); if (c) { fire("pair", { code: c }); toast("Signing in to Atlas"); } };
   // One button: "Check for an update" becomes "Update" when Atlas has a newer version; otherwise it stays and says so.
   let ready = false;
@@ -1441,19 +1473,940 @@ function moveApp(a, state, cat) {
   const pose = () => { const z = document.querySelector("#map .tmz, #map .treesvg > g"); return z ? (z.getAttribute("transform") || "") + (z.style.transform || "") : ""; };
   const hscroll = el => { for (; el && el !== document.body; el = el.parentElement) if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return el; return null; };
   document.addEventListener("touchstart", e => {
-    if (e.touches.length !== 1 || (e.target.closest && e.target.closest("input, select, textarea, canvas, video, .wheel"))) { s = null; return; }
+    if (e.touches.length !== 1 || (e.target.closest && e.target.closest("input, select, textarea, canvas, video, .wheel, #cal"))) { s = null; return; }
     const h = hscroll(e.target);
     s = { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now(), pose: pose(), h, hx: h ? h.scrollLeft : 0 };
   }, { passive: true });
   document.addEventListener("touchend", e => {
     const t = s; s = null;
-    if (!t || e.touches.length || pickedAt >= t.at) return;
+    if (!t || e.touches.length || pickedAt >= t.at || CAL.gestureAt >= t.at) return;
     const c = e.changedTouches[0], dx = c.clientX - t.x, dy = c.clientY - t.y;
     const edge = t.x < 24;                                               // from the left edge it is always Back, as on the phone
     if (dx < 70 || Math.abs(dy) > dx * .6 || Date.now() - t.at > 700 || (!edge && (pose() !== t.pose || (t.h && t.h.scrollLeft !== t.hx)))) return;
     window.launcherBack();
   }, { passive: true });
   document.addEventListener("touchcancel", () => { s = null; }, { passive: true });
+})();
+
+// ---- Claude on the PC (1.5.0): swipe up on Home for what Claude is running on the PC, swipe down to put it away -------
+// The PC saves the Claude process tracker's numbers every 2 minutes as claude-processes.json in Atlas's state folder in
+// the cloud drive; the page reads that file through Atlas like any other file. Five tiles (processes, memory, CPU, GPU,
+// free memory), a ring of who uses what (CPU, GPU or memory), and the projects with their requests.
+const PROCS_FILE = "G:\\My Drive\\.atlas\\claude-processes.json";
+const PR = { open: false, data: null, err: "", metric: "cpu", timer: 0, seq: 0, hideT: 0, want: null, wantAt: 0, fast: 0, sure: 0, note: "" };
+// Pause all (1.6.0): the panel renames a marker folder beside the PC's file, claude-run or claude-paused, through Atlas. The
+// PC looks at it every few seconds: on claude-paused it freezes Claude's jobs (never the Claude app or its connectors), on
+// claude-run it wakes the same processes again, and saves its numbers at once, so the panel sees it within a minute.
+const PR_DIR = "G:\\My Drive\\.atlas", PR_RUN = PR_DIR + "\\claude-run", PR_HOLD = PR_DIR + "\\claude-paused";
+const PR_TONES = ["var(--r3)", "var(--r2)", "var(--r4)", "var(--r1)", "var(--r5)", "var(--r0)"];
+const prNum = (v, d = 1) => v == null || v === "" || !isFinite(+v) ? "\u2013" : (+v).toLocaleString("en-US", { maximumFractionDigits: d });
+const prPct = v => v == null || v === "" || !isFinite(+v) ? "\u2013" : prNum(v) + "%";
+function openProcs() {
+  const p = $("#procs");
+  clearTimeout(PR.hideT);
+  if (p.hidden) { p.classList.remove("anim"); p.style.transform = "translateY(100%)"; p.hidden = false; void p.offsetHeight; }
+  p.classList.add("anim"); p.style.transform = "translateY(0px)";
+  if (!PR.open) { PR.open = true; haptic("tick"); $("#p-body").scrollTop = 0; }
+  loadProcs(); clearInterval(PR.timer); PR.timer = setInterval(loadProcs, 30000);
+  if (PR.want) procsSoon();
+}
+function closeProcs(now) {
+  const p = $("#procs"); if (!p) return;
+  clearInterval(PR.timer); PR.timer = 0; clearInterval(PR.fast); PR.fast = 0; PR.open = false; clearTimeout(PR.hideT);
+  if (PR.sure) { clearTimeout(PR.sure); PR.sure = 0; }
+  if (now || p.hidden || reduced()) { p.classList.remove("anim"); p.style.transform = ""; p.hidden = true; return; }
+  p.classList.add("anim"); p.style.transform = "translateY(100%)";
+  PR.hideT = setTimeout(() => { if (!PR.open) { p.hidden = true; p.classList.remove("anim"); p.style.transform = ""; } }, 280);
+}
+async function loadProcs() {
+  const seq = ++PR.seq;
+  try {
+    const r = await server("/api/text?path=" + encodeURIComponent(PROCS_FILE));
+    const d = JSON.parse(r && r.text || "{}"), rows = Array.isArray(d.rows) ? d.rows : [];
+    if (!rows.some(x => x && x.kind === "total")) throw new Error("empty");
+    if (seq !== PR.seq) return;
+    PR.data = { rows, every: +d.every || 120 }; PR.err = "";
+    const st = procsState(rows.find(x => x.kind === "total"));
+    if (PR.want && st === PR.want) { PR.want = null; PR.note = ""; clearInterval(PR.fast); PR.fast = 0; }
+  } catch (e) {
+    if (seq !== PR.seq) return;
+    const m = e && e.message || "";
+    PR.err = m === "not signed in" ? "Not signed in to Atlas yet: tap Files to sign in."
+      : m === "can't reach Atlas" || /^Failed|network/i.test(m) ? "Can't reach Atlas right now. Is Tailscale on?"
+      : "No numbers from the PC yet. It saves them every 2 minutes while it's on.";
+  }
+  renderProcs();
+}
+function renderProcs() {
+  const rows = PR.data && PR.data.rows, t = rows && rows.find(x => x.kind === "total");
+  $("#p-empty").hidden = !!t; $("#p-main").hidden = !t;
+  if (!t) { $("#p-empty").textContent = PR.err || "Asking Atlas"; $("#p-meta").textContent = "Asking Atlas"; $("#p-pause").hidden = true; return; }
+  const at = Date.parse(t.at), mins = isFinite(at) ? Math.max(0, Math.round((Date.now() - at) / 60000)) : null;
+  const old = mins != null && mins > Math.max(6, 3 * PR.data.every / 60);
+  const when = mins == null ? "" : mins < 1 ? "Updated just now" : mins < 60 ? `Updated ${mins} min ago`
+    : "Updated " + new Date(at).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+  $("#p-meta").innerHTML = `<b>${esc(t.host || "Your PC")}</b> · ${esc(when)}` + (old ? ` · <span class="warn">the PC may be asleep or off</span>` : "")
+    + (PR.err ? ` · <span class="warn">${esc(PR.err)}</span>` : "");
+  const st = drawPause(t), sinceAt = Date.parse(t.pausedSince), np = +t.paused || 0;
+  const line = st === "paused" ? `Paused since ${isFinite(sinceAt) ? new Date(sinceAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "now"}: `
+      + (np ? `${prNum(np, 0)} process${np === 1 ? " is" : "es are"} frozen. Resume all wakes them.` : "nothing of Claude's was running.")
+    : st === "pausing" ? "Pausing: the PC freezes Claude's jobs as soon as it sees it, usually within a minute."
+    : st === "resuming" ? "Resuming: the PC wakes the same processes, usually within a minute." : "";
+  $("#p-state").hidden = !(line || PR.note); $("#p-state").className = "pstate" + (st === "paused" ? " warn" : "");
+  $("#p-state").textContent = [line, PR.note].filter(Boolean).join(" ");
+  const n = +t.requests || 0;
+  const tiles = [["Claude processes", prNum(t.procs, 0), `${prNum(n, 0)} request${n === 1 ? "" : "s"} and the Claude app`],
+    ["Memory used by Claude", prNum(t.gb) + " GB", `${prNum(t.pctRam, 0)}% of ${prNum(t.ramGb)} GB`],
+    ["CPU used by Claude", prPct(t.cpu), `of all ${prNum(t.cpus, 0)} cores`],
+    ["GPU used by Claude", prPct(t.gpu), `PC total ${prPct(t.gpuPc)}`],
+    ["Free memory on the PC", prNum(t.freeGb) + " GB", `${prNum(t.freePct, 0)}% of RAM is free`]];
+  $("#p-tiles").innerHTML = tiles.map(([k, v, s]) => `<div class="ptile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  drawRing();
+  const rank = p => p.project === "Claude itself" ? 2 : p.project === "Not sorted yet" ? 1 : 0;
+  const projects = rows.filter(r => r.kind === "project" && +r.requests > 0).sort((a, b) => rank(a) - rank(b) || (+b.memPct || 0) - (+a.memPct || 0));
+  const cells = r => `<span class="num">${esc(prPct(r.memPct))}</span><span class="num">${esc(prPct(r.cpu))}</span><span class="num">${esc(prPct(r.gpu))}</span>`;
+  $("#p-list").innerHTML = `<div class="prow phd"><span>Request</span><span class="num">Memory</span><span class="num">CPU</span><span class="num">GPU</span></div>`
+    + (projects.length ? projects.map(p => `<div class="prow pj"><span class="t">${esc(p.title || p.project)}</span>${cells(p)}</div>`
+      + rows.filter(r => r.kind === "request" && r.project === p.project).sort((a, b) => (+b.memPct || 0) - (+a.memPct || 0) || (+b.cpu || 0) - (+a.cpu || 0))
+        .map(r => `<div class="prow rq"><span class="t">${esc(r.title)}${r.paused ? `<em class="ptag">paused</em>` : ""}${r.desc ? `<small>${esc(r.desc)}</small>` : ""}</span>${cells(r)}</div>`).join("")).join("")
+      : `<p class="pnone">Nothing from Claude is running.</p>`);
+  const idle = rows.filter(r => r.kind === "project" && +r.requests === 0).map(r => r.project);
+  $("#p-idle").hidden = !idle.length; $("#p-idle").textContent = idle.length ? `Nothing running in ${idle.join(", ")}.` : "";
+}
+// What the PC says: running, pausing (the marker says pause, nothing frozen yet), paused, or resuming.
+function procsState(t) {
+  if (!t) return "";
+  if ((t.control || "running") === "paused") return t.pausedSince ? "paused" : "pausing";
+  return +t.paused > 0 || t.pausedSince ? "resuming" : "running";
+}
+// One button: Pause all (tap, then Sure?), and while paused, Resume all. In between it says what it is waiting for.
+function drawPause(t) {
+  const b = $("#p-pause"); if (!b) return;
+  const pc = procsState(t);
+  let st = pc;
+  if (PR.want === "paused" && (pc === "running" || pc === "resuming")) st = "pausing";
+  if (PR.want === "running" && (pc === "paused" || pc === "pausing")) st = "resuming";
+  b.hidden = !t; b.dataset.st = st;
+  b.disabled = st === "pausing" || st === "resuming";
+  b.classList.toggle("on", st === "paused");
+  b.textContent = st === "paused" ? "Resume all" : st === "pausing" ? "Pausing\u2026" : st === "resuming" ? "Resuming\u2026" : PR.sure ? "Sure?" : "Pause all";
+  return st;
+}
+async function procsControl(want) {
+  PR.want = want; PR.wantAt = Date.now(); PR.note = ""; haptic("tick"); renderProcs();
+  try { await serverPost("/api/rename", want === "paused" ? { path: PR_RUN, name: "claude-paused" } : { path: PR_HOLD, name: "claude-run" }); }
+  catch (e) {
+    try {                                                               // the marker isn't where it should be: set it anyway
+      if (e.message === "not signed in") throw e;
+      if (want === "paused") await serverPost("/api/mkdir", { dir: PR_DIR, name: "claude-paused" });
+      else await serverPost("/api/delete", { items: [PR_HOLD] });
+    } catch (e2) {
+      PR.want = null; PR.note = e2.message === "not signed in" ? "Not signed in to Atlas yet" : `Couldn't reach Atlas to ${want === "paused" ? "pause" : "resume"}`;
+      renderProcs(); return;
+    }
+  }
+  procsSoon();
+}
+// While a change is on its way, look every 5 s, for up to 3 minutes.
+function procsSoon() {
+  clearInterval(PR.fast);
+  PR.fast = setInterval(() => {
+    if (PR.want && Date.now() - PR.wantAt < 180000) return loadProcs();
+    clearInterval(PR.fast); PR.fast = 0;
+    if (PR.want) { PR.want = null; PR.note = "The PC hasn't answered yet: is it on?"; renderProcs(); }
+  }, 5000);
+}
+$("#p-pause").onclick = () => {
+  const st = $("#p-pause").dataset.st;
+  if (st === "paused") return procsControl("running");
+  if (st !== "running") return;
+  if (!PR.sure) { haptic("tick"); PR.sure = setTimeout(() => { PR.sure = 0; renderProcs(); }, 3000); return renderProcs(); }
+  clearTimeout(PR.sure); PR.sure = 0; procsControl("paused");
+};
+// A slice of the ring, from angle a0 to a1 (radians, clockwise from the top), between radii r0 and r1.
+function ringArc(c, r0, r1, a0, a1) {
+  if (a1 - a0 >= 2 * Math.PI - 1e-6) return ringArc(c, r0, r1, a0, a0 + Math.PI) + " " + ringArc(c, r0, r1, a0 + Math.PI, a1);
+  const pt = (r, a) => `${(c + r * Math.sin(a)).toFixed(2)} ${(c - r * Math.cos(a)).toFixed(2)}`, big = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${pt(r1, a0)} A${r1} ${r1} 0 ${big} 1 ${pt(r1, a1)} L${pt(r0, a1)} A${r0} ${r0} 0 ${big} 0 ${pt(r0, a0)} Z`;
+}
+function drawRing() {
+  const box = $("#p-ring"), rows = PR.data && PR.data.rows; if (!box || !rows) return;
+  const k = PR.metric, label = k === "memPct" ? "Memory" : k.toUpperCase(), t = rows.find(x => x.kind === "total");
+  const req = rows.filter(x => x.kind === "request");
+  // each request keeps its color when the choice changes; the order follows the value shown
+  const tone = new Map(req.slice().sort((a, b) => (+b.memPct || 0) - (+a.memPct || 0) || String(a.key).localeCompare(String(b.key))).map((x, i) => [x.key, PR_TONES[i % PR_TONES.length]]));
+  const items = req.map(x => ({ key: x.key, name: x.title, v: +x[k] || 0, color: tone.get(x.key) })).sort((a, b) => b.v - a.v);
+  const other = rows.find(x => x.key === "o:apps"), free = rows.find(x => x.key === "o:free");
+  if (other) items.push({ name: "Other apps", v: +other[k] || 0, hatch: true, muted: true });
+  if (free) items.push({ name: k === "memPct" ? "Free" : "Idle", v: +free[k] || 0, color: "var(--surface-2)", edge: true, muted: true });
+  const W = Math.max(180, Math.min(280, (box.clientWidth || 320) - 16)), c = W / 2, R = c - 2, r0 = R * .64;
+  const all = items.reduce((s, d) => s + Math.max(0, d.v), 0) || 1;
+  let a = 0, paths = "";
+  for (const d of items) {
+    if (d.v <= 0) continue;
+    const a1 = a + d.v / all * 2 * Math.PI;
+    paths += `<path d="${ringArc(c, r0, R, a, a1)}" style="fill:${d.hatch ? "url(#p-hatch)" : d.color};stroke:${d.edge ? "var(--line)" : "var(--bg)"};stroke-width:1"/>`;
+    a = a1;
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${W}" width="${W}" height="${W}" role="img" aria-label="${esc(label + " use: " + items.map(d => d.name + " " + prPct(d.v)).join(", "))}">`
+    + `<defs><pattern id="p-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" style="fill:var(--bg)"/><rect width="1.6" height="5" style="fill:var(--dim)"/></pattern></defs>`
+    + paths + `<circle cx="${c}" cy="${c}" r="${(r0 - 7).toFixed(1)}" style="fill:none;stroke:var(--ink);stroke-width:1"/>`
+    + `<text x="${c}" y="${(c - R * .2).toFixed(1)}" class="rk">CLAUDE</text>`
+    + `<text x="${c}" y="${(c + R * .1).toFixed(1)}" class="rv" style="font-size:${Math.round(R * .26)}px">${esc(prPct(t && t[k]))}</text>`
+    + `<text x="${c}" y="${(c + R * .1 + 16).toFixed(1)}" class="rk">OF ${esc(label.toUpperCase())}</text></svg>`;
+  $("#p-legend").innerHTML = items.map(d => `<li${d.muted ? ' class="muted"' : ""}><i class="sw${d.hatch ? " hatch" : ""}${d.edge ? " edge" : ""}"${d.hatch ? "" : ` style="background:${d.color}"`}></i>`
+    + `<span class="nm">${esc(d.name)}</span><span class="vl">${esc(prPct(d.v))}</span></li>`).join("");
+}
+$$("#p-metric button").forEach(b => b.onclick = () => { PR.metric = b.dataset.k; setSeg("#p-metric", "k", PR.metric); haptic("tick"); drawRing(); });
+$("#p-grab").onclick = () => closeProcs();
+// The swipes: up on Home pulls the panel up with the finger, down on the panel (scrolled to the top) pulls it away.
+// Let go past about a fifth of the screen, or with a flick, and it goes the rest of the way; otherwise it springs back.
+(function swipeProcs() {
+  const panel = $("#procs"), body = $("#p-body");
+  let g = null;
+  document.addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0], el = e.target.closest ? e.target : null;
+    if (!el) return;
+    if (!PR.open) {
+      if (L.screen !== "home" || L.q || dialOpen() || document.body.classList.contains("sheeton") || !el.closest("#home") || el.closest("#hub")) return;
+      g = { up: true, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+    } else if (el.closest("#procs") && body.scrollTop <= 0) g = { up: false, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on) {
+      if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) { g = null; return; }   // sideways: Back, or a map
+      if (Math.abs(dy) < 10) return;
+      if (g.up ? dy > 0 : dy < 0 || body.scrollTop > 0) { g = null; return; }      // the other way: the page's own
+      g.on = true; g.h = innerHeight; panel.classList.remove("anim"); clearTimeout(PR.hideT);
+      if (g.up) { panel.style.transform = `translateY(${g.h}px)`; panel.hidden = false; if (!PR.data) loadProcs(); }
+    }
+    e.preventDefault();
+    panel.style.transform = `translateY(${Math.max(0, g.up ? g.h + dy : dy)}px)`;
+  }, { passive: false });
+  const end = (e, cancel) => {
+    const s = g; g = null;
+    if (!s || !s.on) return;
+    const c = e.changedTouches && e.changedTouches[0], dy = c ? c.clientY - s.y : 0, v = dy / Math.max(1, Date.now() - s.at);
+    const go = !cancel && (s.up ? (-dy > s.h * .2 || v < -.45) : (dy > s.h * .2 || v > .45));
+    if (s.up === go) openProcs(); else closeProcs();
+  };
+  document.addEventListener("touchend", e => end(e, false), { passive: true });
+  document.addEventListener("touchcancel", e => end(e, true), { passive: true });
+})();
+
+// ---- the calendar (1.6.0): swipe right on Home for every calendar on the phone, personal and work, in one place ------
+// Outlook is the model: all the accounts' calendars together, each in its own color; an agenda, a day, three days or a
+// month; a week strip on top that a sideways swipe moves; Calendars to show or hide each one; an event's details with
+// Join for an online meeting, Accept, Tentative or Decline, and the phone's calendar app; + for a new event. Android
+// keeps every account's calendars in one store on the phone (Google, Outlook when it syncs its calendars, Exchange,
+// Samsung...) and the app reads them there (PhoneCalendar.kt): nothing leaves the phone. Days are counted the way
+// Android counts them, as Julian day numbers in the phone's time zone.
+const JD0 = 2440588;                                                    // 1970-01-01
+const jdOf = d => Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY) + JD0;
+const dateOf = jd => { const u = new Date((jd - JD0) * DAY); return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate()); };
+const todayJd = () => jdOf(new Date());
+const WEEK0 = (() => {                                                  // the first day of the week where the phone is
+  try { const l = new Intl.Locale(navigator.language || "en-US"), w = l.getWeekInfo ? l.getWeekInfo() : l.weekInfo; return w && w.firstDay ? w.firstDay % 7 : 0; }
+  catch (e) { return 0; }
+})();
+const weekStart = jd => jd - (dateOf(jd).getDay() - WEEK0 + 7) % 7;
+const CAL = {
+  open: false, shown: false, ready: false, allowed: null, write: false, workProfile: false, h24: false, err: "",
+  cals: [], byId: new Map(), events: [], days: new Map(),
+  from: 0, to: 0, sel: 0, view: "agenda", hide: [], colors: {}, def: "", declined: false,
+  seq: 0, busy: false, hideT: 0, timer: 0, closedAt: 0, gestureAt: 0, asked: false, detail: null,
+};
+const CAL_VIEWS = ["agenda", "day", "3day", "month"];
+const calKey = (w, id) => (w ? "w" : "p") + id;
+const calOf = ev => CAL.byId.get(calKey(ev.w, ev.cal));
+const calPref = c => c.work ? "work|" + c.id : c.type + "|" + c.account + "|" + c.name;     // the same after Android numbers them again
+const calName = c => c.work ? (c.primary ? "Work calendar" : "Work calendar " + c.id) : !c.name || c.name === c.account ? (c.primary ? "Calendar" : c.name || "Calendar") : c.name;
+// In lists, a calendar's name, or its account's domain when the name says nothing ("Calendar", the address itself), or
+// both when two shown calendars share a name: Outlook and Google both call the main one "Calendar".
+function calLabel(c) {
+  if (c.work) return calName(c);
+  const dom = String(c.account || "").split("@")[1] || c.app || "", name = calName(c);
+  if (!c.name || c.name === c.account || /^calendar$/i.test(c.name)) return dom || name;
+  return CAL.cals.some(x => x !== c && calShown(x) && calName(x) === name) ? name + " · " + dom : name;
+}
+const calOn = c => c.visible && c.sync;                                // the phone syncs and shows it
+const calShown = c => calOn(c) && !CAL.hide.includes(calPref(c));
+const calWritable = c => !c.work && calOn(c) && c.access >= 500;
+function saveCal() { savePref("cal", { view: CAL.view, hide: CAL.hide, colors: CAL.colors, def: CAL.def, declined: CAL.declined }); }
+
+// Each calendar keeps its own hue, at the brightness of the launcher's tiles so the names on it stay readable; or the
+// color picked for it in Calendars (hold one). An event with a color of its own keeps that hue.
+const okCache = new Map();
+function hexOk(hex) {
+  if (okCache.has(hex)) return okCache.get(hex);
+  const n = parseInt(String(hex).replace("#", ""), 16) || 0;
+  const v = [16, 8, 0].map(s => { const x = ((n >> s) & 255) / 255; return x <= .04045 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4); });
+  const l = Math.cbrt(.4122214708 * v[0] + .5363325363 * v[1] + .0514459929 * v[2]);
+  const m = Math.cbrt(.2119034982 * v[0] + .6806995451 * v[1] + .1073969566 * v[2]);
+  const s = Math.cbrt(.0883024619 * v[0] + .2817188376 * v[1] + .6299787005 * v[2]);
+  const a = 1.9779984951 * l - 2.4285922050 * m + .4505937099 * s, b = .0259040371 * l + .7827717662 * m - .8086757660 * s;
+  const r = { c: Math.hypot(a, b), h: (Math.atan2(b, a) / RAD + 360) % 360 };
+  okCache.set(hex, r); return r;
+}
+function tone(hex, pick) {
+  if (pick && NAMED[pick]) return `oklch(.6 ${NAMED[pick][1]} ${NAMED[pick][0]})`;
+  const k = hexOk(hex || "#808080");
+  return k.c < .03 ? `oklch(.55 .012 ${k.h.toFixed(1)})` : `oklch(.6 ${Math.min(.16, Math.max(.08, k.c)).toFixed(3)} ${k.h.toFixed(1)})`;
+}
+const calColor = c => tone(c.color, CAL.colors[calPref(c)]);
+function evColor(ev) {
+  const c = calOf(ev); if (!c) return tone(ev.col);
+  const pick = CAL.colors[calPref(c)];
+  return pick ? tone("", pick) : tone(ev.col && ev.col !== c.color ? ev.col : c.color);
+}
+
+// ---- times and days -------------------------------------------------------------------------------------------
+const pad2 = n => String(n).padStart(2, "0");
+const hm = ms => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hourCycle: CAL.h24 ? "h23" : "h12" });
+const hourLabel = h => CAL.h24 ? pad2(h) + ":00" : (h % 12 || 12) + (h < 12 ? " AM" : " PM");
+const evLen = ms => { const m = Math.round(ms / 60000); return m < 60 ? m + "m" : Math.floor(m / 60) + "h" + (m % 60 ? " " + (m % 60) + "m" : ""); };
+const dayFmt = (jd, o) => dateOf(jd).toLocaleDateString("en-US", o);
+function dayHead(jd) {
+  const t = todayJd(), y = dateOf(jd).getFullYear() !== new Date().getFullYear();
+  const name = dayFmt(jd, { weekday: "long", month: "long", day: "numeric", ...(y ? { year: "numeric" } : {}) });
+  return jd === t ? "Today · " + name : jd === t + 1 ? "Tomorrow · " + name : jd === t - 1 ? "Yesterday · " + name : name;
+}
+// An event fills the whole of day jd when it is all day, or runs through it (from midnight or before, to midnight or after).
+const wholeDay = (ev, jd) => !!ev.ad || ((ev.sd < jd || ev.sm <= 0) && (ev.ed > jd || ev.em >= 1440));
+// As in Outlook: tentative is hatched, not answered yet is an outline, declined and canceled are struck through.
+const evState = ev => ev.st === 2 ? "canceled" : ev.me === 2 ? "declined" : ev.me === 3 ? "invited" : ev.me === 4 || ev.st === 0 ? "maybe" : "";
+
+// ---- the days on the phone ----------------------------------------------------------------------------------------------
+function calIndex() {
+  CAL.days = new Map();
+  CAL.events.forEach((ev, i) => { ev.ix = i; });
+  for (const ev of CAL.events) {
+    const c = calOf(ev);
+    if (!c || !calShown(c) || (ev.me === 2 && !CAL.declined)) continue;
+    for (let d = Math.max(ev.sd, CAL.from), e = Math.min(ev.ed, CAL.to); d <= e; d++) {
+      let l = CAL.days.get(d); if (!l) CAL.days.set(d, l = []);
+      l.push(ev);
+    }
+  }
+  for (const [d, l] of CAL.days) l.sort((a, b) => (wholeDay(b, d) - wholeDay(a, d)) || a.b - b.b || b.e - a.e || String(a.t).localeCompare(String(b.t)));
+}
+async function loadCal() {
+  const seq = ++CAL.seq, from = CAL.from, to = CAL.to;
+  CAL.busy = true;
+  try {
+    const [l, e] = await Promise.all([native("cal.list"), native("cal.events", { from, to })]);
+    if (seq !== CAL.seq) return;
+    CAL.allowed = !!l.allowed; CAL.write = !!l.write; CAL.workProfile = !!l.workProfile; CAL.h24 = !!l.h24;
+    CAL.cals = Array.isArray(l.calendars) ? l.calendars : [];
+    CAL.byId = new Map(CAL.cals.map(c => [calKey(c.work, c.id), c]));
+    CAL.events = Array.isArray(e.events) ? e.events : []; CAL.err = "";
+  } catch (err) {
+    if (seq !== CAL.seq) return;
+    CAL.err = err && err.message || "failed";
+  }
+  CAL.ready = true; CAL.busy = false;
+  calIndex(); renderCal(false);
+  if (CAL.allowed === false && !CAL.asked) { CAL.asked = true; fire("cal.allow", { auto: true }); }   // the first swipe right asks Android
+}
+// The days loaded: from a few weeks before to a few weeks after, more at either end as the agenda scrolls, and a fresh
+// stretch after a jump. At most about 14 months at a time: the far end goes as the near one grows.
+function calRange(a, b) {
+  if (CAL.to && a >= CAL.from && b <= CAL.to) return false;
+  const MAX = 420;
+  if (!CAL.to || (a < CAL.from && b > CAL.to) || a > CAL.to + 60 || b < CAL.from - 60) { CAL.from = a - 21; CAL.to = b + 42; }
+  else if (b > CAL.to) { CAL.to = b + 42; CAL.from = Math.max(CAL.from, CAL.to - MAX); }
+  else { CAL.from = a - 21; CAL.to = Math.min(CAL.to, CAL.from + MAX); }
+  loadCal(); return true;
+}
+
+// ---- in and out -----------------------------------------------------------------------------------------------
+function openCal() {
+  const p = $("#cal");
+  clearTimeout(CAL.hideT);
+  if (p.hidden) { p.classList.remove("anim"); p.style.transform = "translateX(-100%)"; p.hidden = false; void p.offsetHeight; }
+  p.classList.add("anim"); p.style.transform = "translateX(0px)";
+  if (!CAL.open) { CAL.open = true; haptic("tick"); if (!CAL.shown) calShow(); }
+  clearInterval(CAL.timer);
+  CAL.timer = setInterval(() => { if (CAL.open && !document.body.classList.contains("sheeton")) renderCal(false); }, 60000);   // the time moves on
+}
+// The panel coming in: it opens on today, unless you looked at it in the last half hour.
+function calShow() {
+  CAL.shown = true;
+  let jump = false;
+  if (!CAL.sel || Date.now() - CAL.closedAt > 30 * 60000) { CAL.sel = todayJd(); jump = true; }
+  if (!calRange(weekStart(CAL.sel) - 7, CAL.sel + 42)) loadCal();
+  renderCal(jump || !$("#c-body").firstElementChild);
+}
+function closeCal(now) {
+  const p = $("#cal"); if (!p) return;
+  clearInterval(CAL.timer); CAL.timer = 0; clearTimeout(CAL.hideT);
+  if (CAL.open || CAL.shown) CAL.closedAt = Date.now();
+  CAL.open = false; CAL.shown = false;
+  if (now || p.hidden || reduced()) { p.classList.remove("anim"); p.style.transform = ""; p.hidden = true; return; }
+  p.classList.add("anim"); p.style.transform = "translateX(-100%)";
+  CAL.hideT = setTimeout(() => { if (!CAL.open) { p.hidden = true; p.classList.remove("anim"); p.style.transform = ""; } }, 280);
+}
+
+// ---- drawing ----------------------------------------------------------------------------------------------------
+function calMeta() {
+  const d = dateOf(CAL.sel || todayJd()), n = CAL.cals.filter(calShown).length;
+  $("#c-meta").innerHTML = `<b>${esc(d.toLocaleDateString("en-US", { month: "long" }))}</b> ${d.getFullYear()}`
+    + (CAL.allowed && CAL.ready ? ` · ${n} calendar${n === 1 ? "" : "s"}` : "");
+}
+function renderCal(jump) {
+  const B = $("#c-body");
+  if ($("#cal").hidden) return;
+  $("#c-todayn").textContent = dateOf(todayJd()).getDate();
+  setSeg("#c-views", "v", CAL.view);
+  calMeta(); renderStrip();
+  B.dataset.view = CAL.view;
+  $("#c-new").hidden = CAL.allowed === false;
+  if (CAL.allowed === false) { B.innerHTML = calPermHtml(); return; }
+  if (!CAL.ready) { B.innerHTML = `<p class="cnote">Reading your calendars</p>`; return; }
+  if (CAL.err && !CAL.events.length && !CAL.cals.length) { B.innerHTML = `<p class="cnote">Couldn't read the calendars: ${esc(CAL.err)}</p>`; return; }
+  if (!CAL.cals.length) {
+    B.innerHTML = `<div class="cperm"><h3>No calendars on this phone yet</h3><p class="note">They come from the accounts on the phone: add one in Android's Settings (Google, Exchange), or in Outlook open Settings, tap each account and turn on Sync calendars.</p></div>`;
+    return;
+  }
+  if (CAL.view === "agenda") renderAgenda(jump);
+  else if (CAL.view === "month") renderMonth();
+  else renderDays(CAL.view === "3day" ? 3 : 1, jump);
+}
+const calPermHtml = () => `<div class="cperm"><h3>Every calendar, in one place</h3>
+  <p>Personal and work, from every account on this phone (Google, Outlook, Exchange and the rest), each in its own color.</p>
+  <p class="note">Android asks once to let Atlas see your calendars, and to add events and answer invitations for you. They're read on the phone and go nowhere.</p>
+  <div class="row"><button type="button" class="btn primary" data-act="allow">Allow calendars</button></div></div>`;
+
+// The week on top: the day picked takes the boxes' color, today is underlined, and a dot for each calendar with an event.
+function renderStrip() {
+  const S = $("#c-strip");
+  if (CAL.view === "month" || CAL.allowed === false) { S.hidden = true; S.innerHTML = ""; return; }
+  S.hidden = false;
+  const w0 = weekStart(CAL.sel), tj = todayJd(), n = CAL.view === "3day" ? 3 : 1;
+  let h = "";
+  for (let i = 0; i < 7; i++) {
+    const jd = w0 + i, on = jd >= CAL.sel && jd < CAL.sel + n;
+    h += `<button type="button" data-sjd="${jd}" class="${on ? "on" : ""}${jd === tj ? " today" : ""}" aria-pressed="${on}" aria-label="${esc(dayFmt(jd, { weekday: "long", month: "long", day: "numeric" }))}">`
+      + `<span class="dw">${esc(dayFmt(jd, { weekday: "narrow" }))}</span><span class="dn">${dateOf(jd).getDate()}</span><span class="dots">${calDots(jd)}</span></button>`;
+  }
+  S.innerHTML = `<div class="cweek">${h}</div>`;
+}
+function calDots(jd) {
+  const seen = [];
+  for (const ev of CAL.days.get(jd) || []) { const c = evColor(ev); if (!seen.includes(c)) seen.push(c); if (seen.length === 3) break; }
+  return seen.map(c => `<i style="background:${c}"></i>`).join("");
+}
+
+// Agenda: every day in a row, its events under it (all day first), "No events" on a free day. Scrolling moves the week
+// on top with it, and loads more days near either end.
+function evWhen(ev, jd) {
+  if (wholeDay(ev, jd)) return ["All day", ev.ed > ev.sd ? `day ${jd - ev.sd + 1} of ${ev.ed - ev.sd + 1}` : ""];
+  if (ev.sd === jd && ev.ed === jd) return [hm(ev.b), evLen(ev.e - ev.b)];
+  if (ev.sd === jd) return [hm(ev.b), "to " + dayFmt(ev.ed, { weekday: "short" })];
+  return ["Until", hm(ev.e)];
+}
+function evRow(ev, jd) {
+  const c = calOf(ev), now = Date.now(), live = !wholeDay(ev, jd) && ev.st !== 2 && ev.b <= now && now < ev.e;
+  const [t1, t2] = evWhen(ev, jd);
+  const sub = [ev.loc, c && CAL.cals.filter(calShown).length > 1 ? calLabel(c) : ""].filter(Boolean).join(" · ");
+  return `<button type="button" class="crow ${evState(ev)}${live ? " live" : ""}" data-ev="${ev.ix}" data-jd="${jd}" style="--ec:${evColor(ev)}">`
+    + `<span class="ct"><b>${esc(live ? "Now" : t1)}</b><small>${esc(live ? "to " + hm(ev.e) : t2)}</small></span><i class="cbar"></i>`
+    + `<span class="cm"><span class="cn">${ev.st === 2 ? "Canceled: " : ""}${esc(ev.t || "(No title)")}</span>${sub ? `<small>${esc(sub)}</small>` : ""}</span>`
+    + (ev.join && ev.st !== 2 && ev.e > now ? `<span class="cj" data-join="${ev.ix}" role="button">Join</span>` : "") + `</button>`;
+}
+function renderAgenda(jump) {
+  const B = $("#c-body"), tj = todayJd();
+  let anchor = null;
+  if (!jump && B.firstElementChild && B.firstElementChild.classList.contains("cagenda")) {
+    const top = [...B.querySelectorAll(".cday")].find(s => s.offsetTop + s.offsetHeight > B.scrollTop);
+    if (top) anchor = { jd: +top.dataset.jd, dy: B.scrollTop - top.offsetTop };
+  }
+  let h = "";
+  for (let jd = CAL.from; jd <= CAL.to; jd++) {
+    const list = CAL.days.get(jd) || [];
+    h += `<section class="cday${jd === tj ? " today" : ""}" data-jd="${jd}"><h4 class="cdh">${esc(dayHead(jd))}</h4>`
+      + (list.length ? list.map(ev => evRow(ev, jd)).join("") : `<p class="cnone">No events</p>`) + `</section>`;
+  }
+  B.innerHTML = `<div class="cagenda">${h}</div>`;
+  const go = anchor || { jd: CAL.sel, dy: 0 }, el = B.querySelector(`.cday[data-jd="${go.jd}"]`);
+  CAL.quiet = true;
+  B.scrollTop = el ? el.offsetTop + go.dy : 0;
+  requestAnimationFrame(() => { CAL.quiet = false; });
+}
+let calRAF = 0;
+function calScrolled() {
+  const B = $("#c-body");
+  if (CAL.view !== "agenda" || CAL.quiet || !B.firstElementChild || !B.firstElementChild.classList.contains("cagenda")) return;
+  const top = [...B.querySelectorAll(".cday")].find(s => s.offsetTop + s.offsetHeight > B.scrollTop + 2);
+  if (top && +top.dataset.jd !== CAL.sel) { CAL.sel = +top.dataset.jd; renderStrip(); calMeta(); }
+  if (CAL.busy) return;
+  if (B.scrollHeight - B.scrollTop - B.clientHeight < 900) calRange(CAL.from, CAL.to + 30);
+  else if (B.scrollTop < 240 && todayJd() - CAL.from < 400) calRange(CAL.from - 30, CAL.to);
+}
+
+// Day and 3 days: the hours down the side, events where they fall (side by side when they overlap), all-day events on
+// top, a line at the time now. Swipe sideways for the next or previous days; tap an empty hour for a new event there.
+const HOUR = 52;
+function layoutDay(list, jd) {
+  const items = list.map(ev => {
+    const s = ev.sd < jd ? 0 : ev.sm, e = ev.ed > jd ? 1440 : ev.em;
+    return { ev, s, e: Math.min(1440, Math.max(e, s + 20)) };
+  }).sort((a, b) => a.s - b.s || b.e - a.e);
+  const out = [];
+  let group = [], end = -1;
+  const flush = () => {
+    const cols = [];
+    for (const it of group) { let k = cols.findIndex(t => t <= it.s); if (k < 0) { k = cols.length; cols.push(0); } cols[k] = it.e; it.k = k; }
+    for (const it of group) it.n = cols.length;
+    out.push(...group); group = []; end = -1;
+  };
+  for (const it of items) {
+    if (group.length && it.s >= end) flush();
+    group.push(it); end = Math.max(end, it.e);
+  }
+  if (group.length) flush();
+  return out;
+}
+function evBlock(it, jd) {
+  const ev = it.ev, top = it.s / 60 * HOUR, h = Math.max(20, (it.e - it.s) / 60 * HOUR - 2);
+  const sub = [ev.sd === jd ? hm(ev.b) : "", ev.loc].filter(Boolean).join(" · ");
+  return `<button type="button" class="cev ${evState(ev)}" data-ev="${ev.ix}" data-jd="${jd}" style="--ec:${evColor(ev)};top:${top.toFixed(1)}px;height:${h.toFixed(1)}px;left:calc(${it.k} * 100% / ${it.n});width:calc(100% / ${it.n} - 2px)">`
+    + `<b>${ev.st === 2 ? "Canceled: " : ""}${esc(ev.t || "(No title)")}</b>${h >= 36 && sub ? `<small>${esc(sub)}</small>` : ""}</button>`;
+}
+function renderDays(n, jump) {
+  const B = $("#c-body"), tj = todayJd(), days = Array.from({ length: n }, (_, i) => CAL.sel + i);
+  calRange(days[0] - 7, days[n - 1] + 7);
+  const keep = !jump && B.firstElementChild && B.firstElementChild.classList.contains("ctime") ? B.scrollTop : null;
+  const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
+  const top = days.map((jd, i) => {
+    const all = (CAL.days.get(jd) || []).filter(ev => wholeDay(ev, jd));
+    const chips = all.slice(0, 3).map(ev => `<button type="button" class="cad ${evState(ev)}" data-ev="${ev.ix}" data-jd="${jd}" style="--ec:${evColor(ev)}">${esc(ev.t || "(No title)")}</button>`).join("")
+      + (all.length > 3 ? `<button type="button" class="cadmore" data-day="${jd}">${all.length - 3} more</button>` : "");
+    return `<div class="cch${jd === tj ? " today" : ""}">${n > 1 ? `<span class="cchd">${esc(dayFmt(jd, { weekday: "short" }))} <b>${dateOf(jd).getDate()}</b></span>` : ""}${chips}</div>`;
+  }).join("");
+  let hours = "";
+  for (let h = 1; h < 24; h++) hours += `<span style="top:${h * HOUR}px">${esc(hourLabel(h))}</span>`;
+  const cols = days.map(jd => `<div class="cgcol${jd === tj ? " today" : ""}" data-jd="${jd}">`
+    + layoutDay((CAL.days.get(jd) || []).filter(ev => !wholeDay(ev, jd)), jd).map(it => evBlock(it, jd)).join("")
+    + (jd === tj ? `<i class="cnow" style="top:${(nowMin / 60 * HOUR).toFixed(1)}px"></i>` : "") + `</div>`).join("");
+  const head = n > 1 || top.includes("cad") ? `<div class="ccols"><span class="cgut"></span>${top}</div>` : "";
+  B.innerHTML = `<div class="ctime" style="--n:${n};--hh:${HOUR}px">${head}<div class="cgrid" style="height:${24 * HOUR}px"><div class="chours">${hours}</div>${cols}</div></div>`;
+  B.scrollTop = keep != null ? keep : Math.max(0, ((days.includes(tj) ? nowMin / 60 - 1.5 : 7.5) * HOUR));
+}
+
+// Month: the weeks of the month with a dot for each calendar that has something that day, and the day picked under it.
+function renderMonth() {
+  const B = $("#c-body"), d = dateOf(CAL.sel), tj = todayJd();
+  const first = jdOf(new Date(d.getFullYear(), d.getMonth(), 1)), last = jdOf(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  const g0 = weekStart(first), rows = Math.ceil((last - g0 + 1) / 7);
+  calRange(g0, g0 + rows * 7 - 1);
+  let head = "", cells = "";
+  for (let i = 0; i < 7; i++) head += `<span>${esc(dayFmt(g0 + i, { weekday: "narrow" }))}</span>`;
+  for (let i = 0; i < rows * 7; i++) {
+    const jd = g0 + i;
+    cells += `<button type="button" data-mjd="${jd}" class="${jd < first || jd > last ? "out" : ""}${jd === tj ? " today" : ""}${jd === CAL.sel ? " on" : ""}" aria-label="${esc(dayFmt(jd, { weekday: "long", month: "long", day: "numeric" }))}">`
+      + `<span class="dn">${dateOf(jd).getDate()}</span><span class="dots">${calDots(jd)}</span></button>`;
+  }
+  const list = CAL.days.get(CAL.sel) || [];
+  B.innerHTML = `<div class="cmonth"><div class="cmhead">${head}</div><div class="cmgrid">${cells}</div></div>`
+    + `<section class="cday" data-jd="${CAL.sel}"><h4 class="cdh">${esc(dayHead(CAL.sel))}</h4>`
+    + (list.length ? list.map(ev => evRow(ev, CAL.sel)).join("") : `<p class="cnone">No events</p>`) + `</section>`;
+}
+
+// Moving on: a week (or the days shown) at a time, or a month in Month.
+function calStep(dir, k) {
+  CAL.sel += dir * k;
+  calRange(weekStart(CAL.sel) - 7, CAL.sel + 14);
+  renderCal(true);
+}
+function calStepMonth(dir) {
+  const d = dateOf(CAL.sel), want = new Date(d.getFullYear(), d.getMonth() + dir, 1);
+  const days = new Date(want.getFullYear(), want.getMonth() + 1, 0).getDate();
+  CAL.sel = jdOf(new Date(want.getFullYear(), want.getMonth(), Math.min(d.getDate(), days)));
+  renderCal(true);
+}
+function calToday() {
+  CAL.sel = todayJd(); haptic("tick");
+  calRange(weekStart(CAL.sel) - 7, CAL.sel + 42);
+  renderCal(true);
+}
+
+// ---- an event: when, where, Join, the answer, the people, the notes, and the phone's calendar app ----------------------
+function whenText(ev) {
+  const long = { weekday: "long", month: "long", day: "numeric" }, short = { weekday: "short", month: "short", day: "numeric" };
+  if (ev.ad) return ev.sd === ev.ed ? [dayFmt(ev.sd, long), "All day"]
+    : [`${dayFmt(ev.sd, short)} – ${dayFmt(ev.ed, short)}`, `All day · ${ev.ed - ev.sd + 1} days`];
+  if (ev.sd === ev.ed) return [dayFmt(ev.sd, long), `${hm(ev.b)} – ${hm(ev.e)} · ${evLen(ev.e - ev.b)}`];
+  return [`${dayFmt(ev.sd, short)}, ${hm(ev.b)} – ${dayFmt(ev.ed, short)}, ${hm(ev.e)}`, evLen(ev.e - ev.b)];
+}
+const BYDAY = { MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday", FR: "Friday", SA: "Saturday", SU: "Sunday" };
+function repeatText(r) {
+  if (!r) return "Repeats";
+  const p = Object.fromEntries(String(r).split(";").map(x => x.split("=")));
+  const f = { DAILY: ["day", "daily"], WEEKLY: ["week", "weekly"], MONTHLY: ["month", "monthly"], YEARLY: ["year", "yearly"] }[p.FREQ];
+  if (!f) return "Repeats";
+  const n = +p.INTERVAL || 1;
+  let t = n === 1 ? "Repeats " + f[1] : `Repeats every ${n} ${f[0]}s`;
+  if (p.FREQ === "WEEKLY" && p.BYDAY) {
+    const ds = p.BYDAY.split(",").map(x => BYDAY[x.slice(-2)]).filter(Boolean);
+    t += ds.length === 5 && !ds.includes("Saturday") && !ds.includes("Sunday") ? " on weekdays" : ds.length ? " on " + ds.join(", ") : "";
+  }
+  if (p.UNTIL && /^\d{8}/.test(p.UNTIL)) t += " until " + new Date(+p.UNTIL.slice(0, 4), +p.UNTIL.slice(4, 6) - 1, +p.UNTIL.slice(6, 8)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  else if (p.COUNT) t += `, ${p.COUNT} times`;
+  return t;
+}
+const ANSWER = { 1: "Accepted", 2: "Declined", 3: "No answer yet", 4: "Tentative", 0: "" };
+const online = s => /teams meeting|microsoft teams|zoom|google meet|webex|online|^https?:/i.test(s || "");
+// The notes as plain text (invitations often come as HTML, read inertly here), with their links tappable.
+function noteHtml(s) {
+  s = String(s || "");
+  if (/<\/?(p|div|br|span|a|table|html|body|font|b|i)\b/i.test(s)) {
+    s = s.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, "\n");
+    s = new DOMParser().parseFromString(s, "text/html").body.textContent || "";
+  }
+  s = s.replace(/<(https?:\/\/[^\s<>]+)>/g, "$1").replace(/\r/g, "").replace(/^[ \t]*[_\-=.~*]{6,}[ \t]*$/gm, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return esc(s).replace(/https?:\/\/[^\s<>"']+/g, all => {
+    const m = /^(.*?)((?:&quot;|&#39;|&gt;|&lt;|&amp;|[.,;:!?)\]])*)$/.exec(all), u = m[1];
+    return `<button type="button" class="clink" data-url="${u}">${u.length > 52 ? u.slice(0, 48) + "…" : u}</button>${m[2]}`;
+  });
+}
+function rsvpHtml(ev, c, d) {
+  if (ev.w || !ev.att || !c || c.access < 300 || ev.st === 2 || !CAL.write) return "";
+  const me = String(c.owner || "").toLowerCase();
+  if (me && String(ev.org || "").toLowerCase() === me) return `<p class="note">You organized this.</p>`;
+  if (d && Array.isArray(d.att) && d.att.length && !d.att.some(a => String(a.e || "").toLowerCase() === me)) return "";
+  const said = { 1: "You accepted.", 4: "You said tentative.", 2: "You declined.", 3: "You haven't answered yet." }[ev.me] || "";
+  return `<div class="crsvp"><div class="seg" id="e-rsvp" role="group" aria-label="Your answer">${[[1, "Accept"], [4, "Tentative"], [2, "Decline"]]
+      .map(([s, l]) => `<button type="button" data-s="${s}" aria-pressed="${ev.me === s}">${l}</button>`).join("")}</div>`
+    + (ev.rr ? `<div class="seg" id="e-one" role="group" aria-label="Answer for"><button type="button" data-o="1" aria-pressed="true">This event</button><button type="button" data-o="0" aria-pressed="false">Every event</button></div>` : "")
+    + `<p class="note" id="e-said">${esc(said)}</p></div>`;
+}
+function peopleHtml(ev, c, d) {
+  if (!d || !Array.isArray(d.att) || !d.att.length) return d && d.org ? `<dl><dt>Organizer</dt><dd>${esc(d.org)}</dd></dl>` : "";
+  const me = c ? String(c.owner || "").toLowerCase() : "";
+  const rank = a => a.r === 2 ? 0 : a.s === 1 ? 1 : a.s === 4 ? 2 : a.s === 2 ? 4 : 3;
+  const people = d.att.filter(a => a.ty !== 3).sort((x, y) => rank(x) - rank(y) || String(x.n || x.e).localeCompare(String(y.n || y.e)));
+  const rooms = d.att.filter(a => a.ty === 3).map(a => a.n || a.e);
+  const count = s => people.filter(a => a.r !== 2 && a.s === s).length;
+  const sum = [`${people.length} ${people.length === 1 ? "person" : "people"}`, count(1) && `${count(1)} accepted`, count(4) && `${count(4)} tentative`,
+    count(2) && `${count(2)} declined`, (count(3) + count(0)) && `${count(3) + count(0)} no answer`].filter(Boolean).join(" · ");
+  const li = a => `<li><span class="nm">${esc(a.n || a.e)}${me && String(a.e || "").toLowerCase() === me ? " (you)" : ""}</span><span class="st">${esc(a.r === 2 ? "Organizer" : ANSWER[a.s] || "")}</span></li>`;
+  return `<div class="cpeople"><h4>People</h4><p class="note">${esc(sum)}</p><ul>${people.slice(0, 8).map(li).join("")}</ul>`
+    + (people.length > 8 ? `<ul id="e-more" hidden>${people.slice(8).map(li).join("")}</ul><button type="button" class="btn" id="e-all">Show all ${people.length}</button>` : "")
+    + (rooms.length ? `<p class="note">Room: ${esc(rooms.join(", "))}</p>` : "") + `</div>`;
+}
+function eventHtml(ev, d) {
+  const c = calOf(ev), [w1, w2] = whenText(ev), st = evState(ev);
+  const tz = d && d.tz && !ev.ad && d.tz !== Intl.DateTimeFormat().resolvedOptions().timeZone && d.tz !== "UTC" ? d.tz.replace(/_/g, " ") : "";
+  const notes = d && d.desc ? noteHtml(d.desc) : "";
+  return `<div class="chip cchip"><i style="background:${evColor(ev)}"></i>${esc(c ? calName(c) : "Calendar")}${c && !c.work ? " · " + esc(c.account || c.app) : ""}</div>
+    <h2 class="${st}">${ev.st === 2 ? "Canceled: " : ""}${esc(ev.t || "(No title)")}</h2>
+    <div class="cwhen"><b>${esc(w1)}</b><span>${esc(w2)}</span>${ev.rr ? `<span>${esc(repeatText(d && d.rrule))}</span>` : ""}${tz ? `<span>Set in ${esc(tz)} time</span>` : ""}</div>
+    ${ev.join && ev.st !== 2 ? `<div class="row"><button type="button" class="btn primary" id="e-join">Join ${esc(ev.jl || "the")} meeting</button></div>` : ""}
+    ${ev.loc ? `<button type="button" class="cplace" id="e-loc"${online(ev.loc) && !/^https?:/i.test(ev.loc) ? " disabled" : ""}><small>Where</small>${esc(ev.loc)}</button>` : ""}
+    ${rsvpHtml(ev, c, d)}${peopleHtml(ev, c, d)}
+    ${notes ? `<div class="cnotes" id="e-notes"><h4>Notes</h4><div class="tx">${notes}</div>${notes.length > 900 ? `<button type="button" class="btn" id="e-notesall">Show all</button>` : ""}</div>` : ""}
+    <div class="row">${ev.w ? `<button type="button" class="btn" id="e-work">Open in the work profile</button>`
+      : `<button type="button" class="btn" id="e-open">Open in the calendar app</button>${CAL.write && c && c.access >= 500 ? `<button type="button" class="btn" id="e-edit">Edit</button>` : ""}`}</div>
+    ${ev.w ? `<p class="note">The work profile shares the times, titles and places of its events; the rest stays there.</p>` : ""}`;
+}
+function joinMeeting(ev) { haptic("tick"); fire("cal.go", { url: ev.join }); }
+function wireEvent(P, ev) {
+  const on = (id, f) => { const b = P.querySelector(id); if (b) b.onclick = f; };
+  on("#e-join", () => joinMeeting(ev));
+  on("#e-loc", () => fire("cal.go", /^https?:/i.test(ev.loc) ? { url: ev.loc } : { place: ev.loc }));
+  on("#e-open", () => fire("cal.open", { kind: "view", id: ev.id, begin: ev.b, end: ev.e }));
+  on("#e-edit", () => fire("cal.open", { kind: "edit", id: ev.id, begin: ev.b, end: ev.e }));
+  on("#e-work", () => fire("cal.open", { kind: "work", id: ev.id, begin: ev.b, end: ev.e, allDay: !!ev.ad }));
+  on("#e-all", () => { P.querySelector("#e-more").hidden = false; P.querySelector("#e-all").remove(); });
+  on("#e-notesall", () => { P.querySelector("#e-notes").classList.add("all"); P.querySelector("#e-notesall").remove(); });
+  P.querySelectorAll(".clink").forEach(b => b.onclick = () => fire("cal.go", { url: b.dataset.url }));
+  P.querySelectorAll("#e-one button").forEach(b => b.onclick = () => setSeg("#e-one", "o", b.dataset.o));
+  P.querySelectorAll("#e-rsvp button").forEach(b => b.onclick = async () => {
+    const s = +b.dataset.s, oneB = P.querySelector('#e-one [aria-pressed="true"]'), one = !!ev.rr && (!oneB || oneB.dataset.o === "1"), n = P.querySelector("#e-said");
+    try {
+      const ok = await native("cal.respond", { id: ev.id, begin: ev.b, status: s, one });
+      if (!ok) { n.textContent = "Couldn't answer from here: open it in the calendar app."; return; }
+      haptic("tick"); ev.me = s; setSeg("#e-rsvp", "s", String(s));
+      n.textContent = { 1: "Accepted.", 4: "Tentative.", 2: "Declined." }[s] + " Your calendar's app sends the answer when it syncs.";
+      calIndex(); renderCal(false); setTimeout(loadCal, 1600);
+    } catch (e) { n.textContent = "Couldn't answer: " + e.message; }
+  });
+}
+async function eventSheet(ev) {
+  CAL.detail = ev;
+  openSheet(eventHtml(ev, null), P => wireEvent(P, ev));
+  if (ev.w) return;
+  try {
+    const d = await native("cal.event", { id: ev.id });
+    if (CAL.detail !== ev || !document.body.classList.contains("sheeton")) return;
+    const y = $("#sheet").scrollTop;
+    openSheet(eventHtml(ev, d), P => wireEvent(P, ev));
+    $("#sheet").scrollTop = y;
+  } catch (e) { /* the summary stays */ }
+}
+
+// ---- Calendars: every calendar on the phone by account; tap to show or hide it here, hold for its color ---------------
+function calsSheet(keep) {
+  const y = keep ? $("#sheet").scrollTop : 0;
+  const groups = new Map();
+  for (const c of CAL.cals) {
+    const g = c.work ? "Work profile\u0000" : (c.app || "") + "\u0000" + (c.account || "");
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(c);
+  }
+  const order = [...groups.keys()].sort((a, b) => (a.startsWith("Work profile") - b.startsWith("Work profile")) || a.localeCompare(b));
+  const row = c => {
+    const k = calPref(c), off = !calOn(c), on = calShown(c);
+    return `<button type="button" class="ccal${on ? " on" : ""}${off ? " off" : ""}" data-ck="${esc(k)}" style="--cc:${calColor(c)}"><i class="sw"></i>`
+      + `<span class="nm">${esc(calName(c))}</span><span class="st">${off ? (CAL.write && !c.work ? "Turn on" : "Off on the phone") : on ? "Shown" : "Hidden"}</span></button>`;
+  };
+  let h = `<div class="chip">Calendars</div><h2>Your calendars</h2>
+    <p class="note">Every calendar on this phone, by account. Tap one to show or hide it here, hold it to pick its color. Your calendar apps stay as they are.</p>`;
+  for (const g of order) {
+    const [app, acct] = g.split("\u0000"), list = groups.get(g).sort((a, b) => (b.primary - a.primary) || calName(a).localeCompare(calName(b)));
+    h += `<div class="cacct"><h4>${esc(app)}${acct ? ` <span>${esc(acct)}</span>` : ""}</h4>${list.map(row).join("")}</div>`;
+  }
+  if (!CAL.cals.length) h += `<p class="note">No calendars on this phone yet.</p>`;
+  h += `<div class="opt"><h4>Declined events</h4><div class="seg" id="cs-dec"><button type="button" data-d="0" aria-pressed="${!CAL.declined}">Hide</button><button type="button" data-d="1" aria-pressed="${CAL.declined}">Show</button></div></div>
+    <div class="opt"><h4>A calendar missing?</h4><p class="note">Calendars come from the accounts on this phone. For Outlook: open Outlook, Settings, tap the account and turn on Sync calendars; do it for each account. For Google or Exchange: add the account in Android's Settings, Passwords and accounts.</p>
+    ${CAL.workProfile && !CAL.cals.some(c => c.work) ? `<p class="note">Your work profile keeps its calendar to itself: Android shows it here only when your company lets personal apps see it.</p>` : ""}
+    <div class="row"><button type="button" class="btn" id="cs-sync">Sync now</button><button type="button" class="btn" id="cs-app">Open the calendar app</button></div></div>`;
+  openSheet(h, P => {
+    $("#sheet").scrollTop = y;
+    P.querySelectorAll(".ccal").forEach(b => {
+      const c = CAL.cals.find(x => calPref(x) === b.dataset.ck); if (!c) return;
+      pressable(b, async () => {
+        if (!calOn(c)) {
+          if (!CAL.write || c.work) { toast("Turn it on in the calendar app"); return; }
+          try { await native("cal.show", { id: c.id }); c.visible = c.sync = true; toast(`${calName(c)} is on: its events come with the next sync`); setTimeout(loadCal, 2500); }
+          catch (e) { toast("Couldn't turn it on: " + e.message); return; }
+        } else {
+          const k = calPref(c), i = CAL.hide.indexOf(k);
+          if (i >= 0) CAL.hide.splice(i, 1); else CAL.hide.push(k);
+          saveCal();
+        }
+        haptic("tick"); calIndex(); renderCal(false); calsSheet(true);
+      }, () => colorSheet(c));
+    });
+    P.querySelectorAll("#cs-dec button").forEach(b => b.onclick = () => { CAL.declined = b.dataset.d === "1"; saveCal(); haptic("tick"); setSeg("#cs-dec", "d", b.dataset.d); calIndex(); renderCal(false); });
+    P.querySelector("#cs-sync").onclick = async () => { try { const n = await native("cal.sync"); toast(n ? "Syncing your calendars" : "Nothing to sync"); setTimeout(loadCal, 4000); } catch (e) { toast("Couldn't sync: " + e.message); } };
+    P.querySelector("#cs-app").onclick = () => fire("cal.open", { kind: "day", at: dateOf(CAL.sel || todayJd()).getTime() + 9 * 3600e3 });
+  });
+}
+function colorSheet(c) {
+  const k = calPref(c), cur = CAL.colors[k] || "";
+  const sw = (key, label, bg) => `<button type="button" class="csw${cur === key ? " on" : ""}" data-col="${key}" aria-label="${esc(label)}" style="background:${bg}"></button>`;
+  openSheet(`<div class="chip">Color</div><h2>${esc(calName(c))}</h2>
+    <div class="cswatches">${sw("", "Its own color", tone(c.color))}${Object.keys(NAMED).map(n => sw(n, n, tone("", n))).join("")}</div>
+    <p class="note">The first is the calendar's own color, at the launcher's brightness.</p>
+    <div class="row"><button type="button" class="btn" id="cc-back">Back to Calendars</button></div>`, P => {
+    P.querySelectorAll("[data-col]").forEach(b => b.onclick = () => {
+      if (b.dataset.col) CAL.colors[k] = b.dataset.col; else delete CAL.colors[k];
+      saveCal(); haptic("tick"); calIndex(); renderCal(false); calsSheet();
+    });
+    P.querySelector("#cc-back").onclick = () => calsSheet();
+  });
+}
+
+// ---- a new event, the way Outlook asks for one: title, calendar, all day, start, end, place, notes, a reminder ----------
+const isoDay = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const isoTime = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const fromInputs = (day, time) => { const [y, m, d] = String(day).split("-").map(Number), [h, mi] = String(time || "00:00").split(":").map(Number); return new Date(y, m - 1, d, h || 0, mi || 0).getTime(); };
+function newEvent(jd, min) {
+  const writable = CAL.cals.filter(calWritable);
+  if (CAL.allowed === false || !CAL.write) { fire("cal.allow"); toast("Allow the calendar first"); return; }
+  if (!writable.length) {
+    openSheet(`<div class="chip">New event</div><h2>No calendar here takes new events</h2><p class="note">Add it in the calendar app instead.</p>
+      <div class="row"><button type="button" class="btn primary" id="n-app">Open the calendar app</button></div>`,
+      P => { P.querySelector("#n-app").onclick = () => { closeSheet(); fire("cal.open", { kind: "insert" }); }; });
+    return;
+  }
+  jd = jd || CAL.sel || todayJd();
+  const now = new Date();
+  if (min == null) min = jd === todayJd() ? Math.min(23 * 60, Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 30) * 30) : 9 * 60;
+  const d0 = dateOf(jd), start = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), 0, min), end = new Date(start.getTime() + 3600e3);
+  const pick = writable.find(c => calPref(c) === CAL.def) || writable.find(c => c.primary && c.type === "com.google") || writable.find(c => c.primary) || writable[0];
+  const opts = writable.map(c => `<option value="${esc(calPref(c))}"${c === pick ? " selected" : ""}>${esc(calName(c) + " · " + (c.account || c.app))}</option>`).join("");
+  const REM = [[-1, "None"], [0, "At the start"], [5, "5 minutes before"], [10, "10 minutes before"], [15, "15 minutes before"], [30, "30 minutes before"], [60, "1 hour before"], [1440, "1 day before"]];
+  openSheet(`<div class="chip">New event</div>
+    <div class="cform">
+      <input type="text" class="t" id="n-title" placeholder="Title" autocomplete="off" enterkeyhint="done">
+      <label>Calendar<select id="n-cal">${opts}</select></label>
+      <label class="ccheck"><input type="checkbox" id="n-all"> All day</label>
+      <label>Starts<span class="two"><input type="date" id="n-sd" value="${isoDay(start)}"><input type="time" id="n-st" value="${isoTime(start)}"></span></label>
+      <label>Ends<span class="two"><input type="date" id="n-ed" value="${isoDay(end)}"><input type="time" id="n-et" value="${isoTime(end)}"></span></label>
+      <input type="text" id="n-loc" placeholder="Location" autocomplete="off">
+      <textarea id="n-notes" placeholder="Notes"></textarea>
+      <label>Reminder<select id="n-rem">${REM.map(([m, l]) => `<option value="${m}"${m === 15 ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+      <p class="note err" id="n-err" hidden></p>
+      <div class="row"><button type="button" class="btn primary" id="n-save">Save</button><button type="button" class="btn" id="n-more">More options in the calendar app</button></div>
+    </div>`, P => {
+    const q = s => P.querySelector(s), all = q("#n-all");
+    let dur = 3600e3;
+    const span = () => ({ b: fromInputs(q("#n-sd").value, all.checked ? "00:00" : q("#n-st").value), e: fromInputs(q("#n-ed").value, all.checked ? "00:00" : q("#n-et").value) });
+    const moved = () => {                                               // the end keeps its distance from the start, as in Outlook
+      const b = fromInputs(q("#n-sd").value, q("#n-st").value), e = new Date(b + dur);
+      q("#n-ed").value = isoDay(e); q("#n-et").value = isoTime(e);
+    };
+    q("#n-sd").onchange = moved; q("#n-st").onchange = moved;
+    const ended = () => { const s = span(); if (s.e > s.b) dur = s.e - s.b; };
+    q("#n-ed").onchange = ended; q("#n-et").onchange = ended;
+    all.onchange = () => {
+      q("#n-st").hidden = q("#n-et").hidden = all.checked;
+      if (all.checked && q("#n-rem").value === "15") q("#n-rem").value = "-1";
+    };
+    const args = () => {
+      const s = span(), c = writable.find(x => calPref(x) === q("#n-cal").value) || pick;
+      return { c, a: { cal: c.id, title: q("#n-title").value.trim(), loc: q("#n-loc").value.trim(), notes: q("#n-notes").value.trim(), allDay: all.checked,
+        begin: s.b, end: all.checked ? fromInputs(q("#n-ed").value, "00:00") + DAY : s.e, startDate: q("#n-sd").value, endDate: q("#n-ed").value, remind: +q("#n-rem").value } };
+    };
+    q("#n-save").onclick = async () => {
+      const { c, a } = args(), err = q("#n-err");
+      if (!a.startDate || !a.endDate) { err.hidden = false; err.textContent = "Pick a day."; return; }
+      if (a.allDay ? a.endDate < a.startDate : a.end <= a.begin) { err.hidden = false; err.textContent = "It ends before it starts."; return; }
+      q("#n-save").disabled = true;
+      try {
+        await native("cal.create", a);
+        CAL.def = calPref(c); saveCal(); closeSheet(); haptic("tick"); toast(`Added to ${calLabel(c)}`);
+        CAL.sel = jdOf(new Date(a.begin)); calRange(weekStart(CAL.sel) - 7, CAL.sel + 14); loadCal(); renderCal(true);
+      } catch (e) { q("#n-save").disabled = false; err.hidden = false; err.textContent = "Couldn't add it: " + e.message; }
+    };
+    q("#n-more").onclick = () => { const { a } = args(); closeSheet(); fire("cal.open", { kind: "insert", begin: a.begin, end: a.end, allDay: a.allDay, title: a.title, loc: a.loc, notes: a.notes }); };
+    setTimeout(() => q("#n-title").focus(), 250);
+  });
+}
+
+// ---- taps, and the swipes inside the calendar ---------------------------------------------------------------------------
+$("#c-title").onclick = () => { haptic("tick"); closeCal(); };      // the name on the left goes back Home, as everywhere
+$("#c-title").onkeydown = e => { if (e.key === "Enter") closeCal(); };
+$("#c-today").onclick = calToday;
+$$("#c-views button").forEach(b => b.onclick = () => { CAL.view = b.dataset.v; saveCal(); haptic("tick"); renderCal(true); });
+$("#c-cals").onclick = () => calsSheet();
+$("#c-new").onclick = () => newEvent(CAL.sel);
+$("#c-strip").addEventListener("click", e => {
+  const b = e.target.closest("[data-sjd]"); if (!b) return;
+  CAL.sel = +b.dataset.sjd; haptic("tick"); renderCal(true);
+});
+$("#c-body").addEventListener("click", e => {
+  const t = e.target;
+  const j = t.closest("[data-join]"); if (j) { const ev = CAL.events[+j.dataset.join]; if (ev) joinMeeting(ev); return; }
+  const r = t.closest("[data-ev]"); if (r) { const ev = CAL.events[+r.dataset.ev]; if (ev) eventSheet(ev); return; }
+  const m = t.closest("[data-mjd]"); if (m) { CAL.sel = +m.dataset.mjd; haptic("tick"); renderCal(false); return; }
+  const more = t.closest("[data-day]"); if (more) { CAL.sel = +more.dataset.day; CAL.view = "agenda"; saveCal(); renderCal(true); return; }
+  const a = t.closest("[data-act]"); if (a && a.dataset.act === "allow") { fire("cal.allow"); return; }
+  const col = t.closest(".cgcol");
+  if (col) {                                                         // an empty hour: a new event there, on the half hour
+    const y = e.clientY - col.getBoundingClientRect().top;
+    newEvent(+col.dataset.jd, Math.max(0, Math.min(23 * 60 + 30, Math.floor(y / HOUR * 2) * 30)));
+  }
+});
+$("#c-body").addEventListener("scroll", () => { cancelAnimationFrame(calRAF); calRAF = requestAnimationFrame(calScrolled); }, { passive: true });
+// Sideways inside: on the week, a week; on the hours, the next days; on the month, a month. A quick, mostly sideways swipe.
+function sideSwipe(el, test, go) {
+  let s = null;
+  el.addEventListener("touchstart", e => {
+    const t = e.touches[0];
+    s = e.touches.length === 1 && test(e.target) ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+  }, { passive: true });
+  el.addEventListener("touchend", e => {
+    const t = s; s = null;
+    if (!t) return;
+    const c = e.changedTouches[0], dx = c.clientX - t.x, dy = c.clientY - t.y;
+    if (Math.abs(dx) < 48 || Math.abs(dy) > Math.abs(dx) * .7 || Date.now() - t.at > 900) return;
+    CAL.gestureAt = Date.now(); haptic("tick"); go(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  el.addEventListener("touchcancel", () => { s = null; }, { passive: true });
+}
+sideSwipe($("#c-strip"), () => true, dir => calStep(dir, 7));
+sideSwipe($("#c-body"), t => !!(t.closest && t.closest(".ctime, .cmonth")), dir => { if (CAL.view === "month") calStepMonth(dir); else calStep(dir, CAL.view === "3day" ? 3 : 1); });
+// The swipes in and out: right on Home pulls the calendar in from the left with the finger, left on it (outside the week,
+// the hours and the month, which swipe on their own) pushes it away. Past a fifth of the screen, or with a flick, it
+// goes the rest of the way; otherwise it springs back.
+(function swipeCal() {
+  const panel = $("#cal");
+  let g = null;
+  document.addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0], el = e.target && e.target.closest ? e.target : null;
+    if (!el) return;
+    const sheet = document.body.classList.contains("sheeton");
+    if (!CAL.open) {
+      if (L.screen !== "home" || L.q || dialOpen() || sheet || PR.open || !el.closest("#home") || el.closest("#hub")) return;
+      g = { opening: true, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+    } else if (!sheet && el.closest("#cal") && !el.closest("#c-strip, .ctime, .cmonth, input, select, textarea"))
+      g = { opening: false, x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }      // up or down: the page's own, or the Claude panel
+      if (Math.abs(dx) < 10) return;
+      if (g.opening ? dx < 0 : dx > 0) { g = null; return; }                           // the other way
+      g.on = true; g.w = innerWidth; CAL.gestureAt = Date.now(); clearTimeout(CAL.hideT);
+      panel.classList.remove("anim");
+      if (g.opening) { panel.style.transform = `translateX(${-g.w}px)`; panel.hidden = false; if (!CAL.shown) calShow(); }
+    }
+    e.preventDefault();
+    panel.style.transform = `translateX(${Math.min(0, g.opening ? dx - g.w : dx)}px)`;
+  }, { passive: false });
+  const end = (e, cancel) => {
+    const s = g; g = null;
+    if (!s || !s.on) return;
+    CAL.gestureAt = Date.now();
+    const c = e.changedTouches && e.changedTouches[0], dx = c ? c.clientX - s.x : 0, v = dx / Math.max(1, Date.now() - s.at);
+    const go = !cancel && (s.opening ? (dx > s.w * .2 || v > .45) : (-dx > s.w * .2 || v < -.45));
+    if (s.opening === go) openCal(); else closeCal();
+  };
+  document.addEventListener("touchend", e => end(e, false), { passive: true });
+  document.addEventListener("touchcancel", e => end(e, true), { passive: true });
+})();
+
+// ---- Home Assistant (1.6.2): swipe left on Home opens the Home Assistant app -----------------------------------------
+// Straight from Home to the app, with nothing in between (1.6.1 brought a tile in with the finger first). Let go past a
+// fifth of the screen, or with a flick, and the app opens with Android's own animation; a shorter pull does nothing.
+const HA_PKG = /^io\.homeassistant\.companion\.android(\.minimal)?$/;            // the Play Store app, or the minimal one
+const haApp = () => L.apps.filter(a => HA_PKG.test(a.pkg)).sort((x, y) => (x.work ? 1 : 0) - (y.work ? 1 : 0))[0]
+  || L.apps.find(a => /^home assistant$/i.test(a.label));
+function openHA() {
+  const a = haApp();
+  if (!a) { haptic("long"); toast("Home Assistant isn't on this phone"); return; }
+  haptic("tick"); launch(a);
+}
+(function swipeHA() {
+  let g = null;
+  document.addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1 || CAL.open || PR.open) return;
+    const t = e.touches[0], el = e.target && e.target.closest ? e.target : null;
+    if (!el || L.screen !== "home" || L.q || dialOpen() || document.body.classList.contains("sheeton") || !el.closest("#home") || el.closest("#hub")) return;
+    g = { x: t.clientX, y: t.clientY, at: Date.now(), on: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.on) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }      // up or down: the Claude panel
+      if (Math.abs(dx) < 10) return;
+      if (dx > 0) { g = null; return; }                                                 // to the right: the calendar
+      g.on = true; g.w = innerWidth;
+    }
+    e.preventDefault();                                                                 // Home stays still under the finger
+  }, { passive: false });
+  const end = (e, cancel) => {
+    const s = g; g = null;
+    if (!s || !s.on || cancel) return;
+    const c = e.changedTouches && e.changedTouches[0], dx = c ? c.clientX - s.x : 0, v = dx / Math.max(1, Date.now() - s.at);
+    if (-dx > s.w * .2 || v < -.45) openHA();
+  };
+  document.addEventListener("touchend", e => end(e, false), { passive: true });
+  document.addEventListener("touchcancel", e => end(e, true), { passive: true });
 })();
 
 // ---- wiring --------------------------------------------------------------------------------------------
@@ -1465,7 +2418,7 @@ $$("#views button").forEach(b => b.onclick = () => { L.view = b.dataset.v; L.tz 
 $$("#metric button").forEach(b => b.onclick = () => { L.metric = b.dataset.m; resetMZ(); setSeg("#metric", "m", L.metric); savePref("metric", L.metric); renderApps(); });
 pressable($("#tonebtn"), () => show("settings"), () => flipScheme($("#tonebtn")));   // the circle by the search: Settings; hold: black or ivory
 let rt = 0;
-window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) placeDial(); if (L.screen !== "settings") refreshScreen(); }, 120); });
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (dialOpen()) placeDial(); if (L.screen !== "settings") refreshScreen(); if (PR.open) renderProcs(); if (CAL.open) renderCal(false); }, 120); });
 
 (async function start() {
   applyTheme();

@@ -153,7 +153,7 @@ rclone's own guide: [Making your own client_id](https://rclone.org/drive/#making
 
 ## As your Android Home screen (optional)
 
-The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most. In Files a tap shows a file and holding it opens it in its app, the search bar also searches Google and your contacts, and in Sun mode the colors follow the sky where you are, black at night. Version 1.4.0 (2026-11-20); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
+The [Atlas launcher](launcher/README.md) makes Atlas the phone's Home screen: two boxes, **Apps** and **Files**, that open the Atlas maps, and a circle between them for a dial of the apps and files you use most (two quick taps on it open the camera). In Files a tap shows a file and holding it opens it in its app, the search bar also searches Google and your contacts, in Sun mode the colors follow the sky where you are, black at night, swiping up on Home shows what Claude is running on your PC, with a button to pause it all, swiping right shows every calendar on the phone, personal and work, in one place, and swiping left opens Home Assistant. Version 1.7.0 (2026-11-24); the Android app is built on the PC with `launcher\build.ps1` and installed from your Atlas.
 
 ## Security
 

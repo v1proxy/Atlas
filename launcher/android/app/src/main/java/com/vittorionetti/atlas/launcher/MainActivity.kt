@@ -19,6 +19,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -74,11 +75,15 @@ class MainActivity : Activity() {
     private var pendingCall: String? = null
     private val where by lazy { Where(this, prefs) }
     private var placeWas = false
+    private val calendar by lazy { PhoneCalendar(this) }
+    private var calendarWas = false
     @Volatile private var filesTheme: String? = null          // Sun mode: the sky for Atlas in Files, sent by the home page
     private var filesThemeDirty = false
     private var latest: JSONObject? = null
+    private var latestDir: String? = null       // where the newest build is: null for the server, else the drive folder
     private var cfgServer = ""
     private var cfgPair = ""
+    private var cfgUpdates = ""
     private val iconPx get() = (48 * resources.displayMetrics.density).roundToInt().coerceIn(96, 192)
 
     companion object {
@@ -88,6 +93,7 @@ class MainActivity : Activity() {
         private const val REQ_CONTACTS = 42
         private const val REQ_CALL = 43
         private const val REQ_PLACE = 44
+        private const val REQ_CALENDAR = 45
     }
 
     // ---- start ---------------------------------------------------------------------------------------------
@@ -98,7 +104,7 @@ class MainActivity : Activity() {
         apps = Apps(this, prefs)
         try {
             val j = JSONObject(assets.open("launcher.json").bufferedReader().use { it.readText() })
-            cfgServer = j.optString("server").trimEnd('/'); cfgPair = j.optString("pair")
+            cfgServer = j.optString("server").trimEnd('/'); cfgPair = j.optString("pair"); cfgUpdates = j.optString("updates").trimEnd('\\')
         } catch (e: Exception) { /* a build without settings: the address can be set from Options */ }
         server = Server { prefs.string("server", cfgServer).trimEnd('/').takeIf { it.startsWith("https://") } ?: "" }
 
@@ -132,6 +138,8 @@ class MainActivity : Activity() {
         usageWas = apps.hasUsageAccess()
         contactsWas = contacts.allowed()
         placeWas = where.allowed()
+        calendarWas = calendar.allowed()
+        if (calendarWas) calendar.listen { event("calendar") }
         apps.listen { event("apps") }
 
         // Opened from the apps after Quit: be the Home screen again (Android asks once the page is ready).
@@ -239,6 +247,11 @@ class MainActivity : Activity() {
         if (now != usageWas) { usageWas = now; apps.forgetUsage(); event("apps") } else event("resume")
         if (contacts.allowed() != contactsWas) { contactsWas = !contactsWas; event("contacts") }   // allowed or taken back in Settings
         if (where.allowed() != placeWas) { placeWas = !placeWas; event("place") }
+        if (calendar.allowed() != calendarWas) {                              // allowed or taken back in Settings
+            calendarWas = !calendarWas
+            if (calendarWas) calendar.listen { event("calendar") }
+            event("calendar")
+        }
     }
 
     override fun onPause() {
@@ -306,7 +319,8 @@ class MainActivity : Activity() {
         "appInfo" -> { apps.details(a.getString("key")); true }
         "uninstall" -> { uninstall(a.getString("key")); true }
         "server" -> {
-            val (code, body) = server.text(a.getString("path"))
+            val post = a.optString("method").equals("POST", true)          // a change, such as Pause in the Claude panel
+            val (code, body) = server.text(a.getString("path"), if (post) "POST" else "GET", if (post) a.optString("body", "{}") else null)
             JSONObject().put("status", code).put("body", body)
         }
         "serverPost" -> {
@@ -323,17 +337,29 @@ class MainActivity : Activity() {
             runOnUiThread { showFiles(); filesJs(js) }; true
         }
         "haptic" -> { runOnUiThread { haptic(home, a.optString("k")) }; true }
+        "camera.open" -> { openCamera(); true }
         "usage.request" -> { runOnUiThread { openUsageSettings() }; true }
         "home.request" -> { requestHome(); true }
         "quit" -> { quit(); true }
         "info" -> JSONObject().put("version", BuildConfig.VERSION_NAME).put("code", BuildConfig.VERSION_CODE)
             .put("server", server.address).put("isDefault", isDefaultHome()).put("usage", apps.hasUsageAccess()).put("signedIn", server.signedIn())
+            .put("calendar", calendar.allowed())
         "pair" -> { pair(a.getString("code"), a.optString("server")); true }
         "web.search" -> { webSearch(a.getString("q")); true }
         "web.suggest" -> suggest(a.getString("q"))
         "contacts.search" -> JSONObject().put("allowed", contacts.allowed()).put("contacts", contacts.search(a.optString("q")))
         "contacts.allow" -> { askContacts(); true }
         "contacts.open" -> { openContact(a); true }
+        "cal.list" -> calendar.list().also { if (calendar.allowed()) calendar.listen { event("calendar") } }
+        "cal.events" -> calendar.events(a.getInt("from"), a.getInt("to"))
+        "cal.event" -> calendar.event(a.getLong("id"))
+        "cal.allow" -> { askCalendar(a.optBoolean("auto")); true }
+        "cal.respond" -> calendar.respond(a.getLong("id"), a.optLong("begin"), a.getInt("status"), a.optBoolean("one"))
+        "cal.create" -> calendar.create(a)
+        "cal.show" -> calendar.show(a.getLong("id"))
+        "cal.sync" -> calendar.sync()
+        "cal.open" -> { calOpen(a); true }
+        "cal.go" -> { go(a); true }
         "update.check" -> checkUpdate()
         "update.install" -> { installUpdate(); true }
         "ready" -> {
@@ -370,6 +396,14 @@ class MainActivity : Activity() {
 
     private fun haptic(v: View, kind: String) {
         v.performHapticFeedback(if (kind == "tick") HapticFeedbackConstants.CLOCK_TICK else HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    /** Two quick taps on the circle (1.7.0): the phone's own camera app, ready for a photo. No permission is needed:
+     *  the camera app takes the picture and keeps it, the launcher only opens it. */
+    private fun openCamera() = runOnUiThread {
+        try { startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (e: ActivityNotFoundException) { Toast.makeText(this, "No camera app on this phone opens from here.", Toast.LENGTH_SHORT).show() }
+        catch (e: Exception) { Toast.makeText(this, "Couldn't open the camera: " + (e.message ?: "unknown error"), Toast.LENGTH_SHORT).show() }
     }
 
     private fun pair(code: String, address: String) = runOnUiThread {
@@ -428,6 +462,48 @@ class MainActivity : Activity() {
         } else if (!auto) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
 
+    // ---- the calendar (1.6.0): see PhoneCalendar.kt ---------------------------------------------------------------------
+    /** The first swipe right asks Android (once, and once more after a no); Allow calendars asks too, and opens the app's
+     *  settings when Android won't ask any more. Reading and writing the calendar are one question on Android. */
+    private fun askCalendar(auto: Boolean) = runOnUiThread {
+        if (calendar.allowed() && calendar.canWrite()) { event("calendar"); return@runOnUiThread }
+        if (!prefs.flag("askedCalendar") || shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR)) {
+            prefs.setFlag("askedCalendar", true)
+            requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR), REQ_CALENDAR)
+        } else if (!auto) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+    }
+
+    /** An event in the phone's calendar app (to see it or edit it), a new one there, or a day; a work event in the work profile's. */
+    private fun calOpen(a: JSONObject) = runOnUiThread {
+        val kind = a.optString("kind")
+        if (kind == "work") {
+            val opened = calendar.openWork(a.optLong("id"), a.optLong("begin"), a.optLong("end"), a.optBoolean("allDay"))
+            if (!opened) Toast.makeText(this, "The work profile has no calendar app that opens events from here.", Toast.LENGTH_LONG).show()
+            return@runOnUiThread
+        }
+        try {
+            startActivity(when (kind) {
+                "insert" -> calendar.insertIntent(a)
+                "day" -> calendar.dayIntent(a.optLong("at", System.currentTimeMillis()))
+                else -> calendar.viewIntent(a.getLong("id"), a.optLong("begin"), a.optLong("end"), kind == "edit")
+            })
+        } catch (e: ActivityNotFoundException) { Toast.makeText(this, "No calendar app on this phone opens that.", Toast.LENGTH_SHORT).show() }
+        catch (e: Exception) { Toast.makeText(this, "Couldn't open it: " + (e.message ?: "unknown error"), Toast.LENGTH_SHORT).show() }
+    }
+
+    /** A link from an event (Join, a link in its notes) in its own app or the browser, or its place in the phone's maps. */
+    private fun go(a: JSONObject) {
+        val place = a.optString("place")
+        val uri = if (place.isNotBlank()) Uri.parse("geo:0,0?q=" + Uri.encode(place)) else Uri.parse(a.getString("url"))
+        require(uri.scheme in setOf("https", "http", "geo", "mailto", "tel")) { "not a link" }
+        runOnUiThread {
+            val i = Intent(Intent.ACTION_VIEW, uri)
+            if (uri.scheme == "https" || uri.scheme == "http") i.addCategory(Intent.CATEGORY_BROWSABLE)
+            try { startActivity(i) }
+            catch (e: ActivityNotFoundException) { Toast.makeText(this, "No app on this phone opens that.", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
     private fun openContact(a: JSONObject) {
         if (a.optString("kind") == "call") { placeCall(a.getString("number")); return }
         val i = contacts.intent(a) ?: return
@@ -456,6 +532,7 @@ class MainActivity : Activity() {
             REQ_CONTACTS -> { contactsWas = contacts.allowed(); event("contacts") }
             REQ_CALL -> pendingCall?.let { n -> pendingCall = null; startCall(n, ok) }
             REQ_PLACE -> { placeWas = where.allowed(); if (ok) where.refresh(0L) { event("place") }; event("place") }
+            REQ_CALENDAR -> { calendarWas = calendar.allowed(); if (calendarWas) calendar.listen { event("calendar") }; event("calendar") }
         }
     }
 
@@ -644,17 +721,30 @@ class MainActivity : Activity() {
         } catch (e: Exception) { Toast.makeText(this, "Couldn't download it", Toast.LENGTH_SHORT).show() }
     }
 
-    // ---- new versions, from your Atlas server ---------------------------------------------------------------
+    // ---- new versions: from your Atlas server, or from the updates folder in your cloud drive ---------------------
+    // Two places, and the newer build wins: the server's own launcher_dist (/launcher/...), and launcher.json's "updates"
+    // folder in the cloud drive (for example G:\\My Drive\\.atlas\\launcher), read through Atlas like any other file. The
+    // second needs nothing copied onto the server: build.ps1 puts each build there. Android installs only an update
+    // signed with the same key, and the download must match latest.json's sha256.
     private fun checkUpdate(): JSONObject {
         val (code, body) = server.text("/launcher/latest.json")
         if (code == 401) throw IllegalStateException("sign in to Atlas first")
-        if (code != 200) throw IllegalStateException(if (code == 0) "can't reach Atlas" else "there is no launcher build on Atlas")
-        val j = JSONObject(body); latest = j
+        if (code == 0) throw IllegalStateException("can't reach Atlas")
+        var best: JSONObject? = if (code == 200) runCatching { JSONObject(body) }.getOrNull() else null
+        var from: String? = null
+        if (cfgUpdates.isNotEmpty()) {
+            val (c2, b2) = server.text("/api/text?path=" + Uri.encode("$cfgUpdates\\latest.json"))
+            val d = if (c2 == 200) runCatching { JSONObject(JSONObject(b2).optString("text")) }.getOrNull() else null
+            if (d != null && (best == null || d.optInt("code") > best.optInt("code"))) { best = d; from = cfgUpdates }
+        }
+        val j = best ?: throw IllegalStateException("there is no launcher build on Atlas")
+        latest = j; latestDir = from
         return JSONObject().put("available", j.optInt("code") > BuildConfig.VERSION_CODE).put("version", j.optString("version")).put("notes", j.optString("notes"))
     }
 
     private fun installUpdate() {
-        val j = latest ?: JSONObject(server.text("/launcher/latest.json").second)
+        if (latest == null) checkUpdate()
+        val j = latest ?: throw IllegalStateException("there is no launcher build on Atlas")
         if (!packageManager.canRequestPackageInstalls()) {
             runOnUiThread {
                 Toast.makeText(this, "Allow Atlas to install its updates, then tap Update again", Toast.LENGTH_LONG).show()
@@ -663,7 +753,8 @@ class MainActivity : Activity() {
             return
         }
         val f = File(cacheDir, "atlas-launcher.apk")
-        val c = server.open("/launcher/atlas-launcher.apk")
+        val dir = latestDir
+        val c = server.open(if (dir != null) "/api/file?path=" + Uri.encode("$dir\\atlas-launcher.apk") else "/launcher/atlas-launcher.apk")
         try {
             if (c.responseCode != 200) throw IllegalStateException("Atlas answered " + c.responseCode)
             c.inputStream.use { input -> f.outputStream().use { input.copyTo(it) } }

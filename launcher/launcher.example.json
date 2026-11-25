@@ -1,5 +1,6 @@
 {
-  "_about": "Copy to launcher.json (never published) for your own build. server: your Atlas address on your tailnet. pair: optional one-time pairing code (atlas_service.py --pair); the launcher uses it once, on its first start, so you never type it.",
+  "_about": "Copy to launcher.json (never published) for your own build. server: your Atlas address on your tailnet. pair: optional one-time pairing code (atlas_service.py --pair); the launcher uses it once, on its first start, so you never type it. updates: optional folder in your cloud drive, as Atlas names it, where build.ps1 also puts each build and where Settings, Version and updates looks for one, so nothing has to be copied onto the server.",
   "server": "https://your-atlas.your-tailnet.ts.net",
-  "pair": ""
+  "pair": "",
+  "updates": ""
 }
