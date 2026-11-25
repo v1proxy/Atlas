@@ -219,6 +219,7 @@
       }
       case "cal.show": { const c = CALS.find(x => x.id === args.id && !x.work); if (c) { c.visible = c.sync = true; } return !!c; }
       case "cal.sync": return 3;
+      case "camera.open": window.MOCK_CAMERA = (window.MOCK_CAMERA || 0) + 1; return true;     // 1.7.0
       default: return true;
     }
   }

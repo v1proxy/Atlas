@@ -9,6 +9,7 @@ Atlas as an Android phone's Home screen. A frame like Atlas on top, then the scr
 - **Tap a box** to open its Atlas map: Treemap, Tree or List. Apps are sorted the Atlas way, into Current, Superseded and Working and into your own categories; Files is Atlas itself, from your Atlas server.
 - **Tap the circle** for the dial. The cross spins while your pinned names come out of the circle onto three rings: apps toward the Apps box, files and folders toward the Files box, the most used first and nearest. Tap a name to open it. Tap the circle again and the names go back in while the cross spins the other way.
 - **Hold the circle** to take names off the dial: they come out gray, a first tap turns one red, a second tap takes it off.
+- **Tap the circle twice quickly** to open the phone's camera, ready for a photo. (A single tap opens the dial a quarter second later, once no second tap has come.)
 - **Everywhere, one tap opens and a long press offers more**, including Add to dial: on an app or a folder.
 - **Files: tap a file to see it here**, without leaving the launcher: photos, videos, music, PDFs, text, 3D models, and Word, Excel and PowerPoint files (your Atlas server turns them into PDFs). The bar on top has **Add to dial**, **Share**, **Open in app** and **Details**. **Hold a file** to open it straight in the phone's own app for it.
 - **Hold an app and drag it** onto a category to move it there, on the treemap, the tree or the list. Let go without moving to see its details instead.
@@ -92,6 +93,7 @@ python launcher/test/build_preview.py OUT_DIR              # the launcher and At
 
 ## Changes
 
+- **1.7.0 (2026-11-24).** Two quick taps on the circle open the phone's camera, ready for a photo. One tap still opens the dial, a quarter second later, once no second tap has come.
 - **1.6.3 (2026-11-22).** Pause all in the Claude panel: freezes Claude's jobs on the PC (never the Claude app or its connectors) after a Sure?, and the same button then says Resume all. A line says what is paused since when, and paused requests are marked. The page can now ask Atlas for changes too (the app's bridge sends POSTs with Atlas's own header).
 - **1.6.2 (2026-11-22).** Swipe left on Home opens Home Assistant straight away: the tile no longer comes in with the finger first.
 - **1.6.1 (2026-11-22).** Swipe left on Home for Home Assistant: its tile, in the boxes' color or the sky, comes in from the right with the finger and the app opens when you let go. The mirror of the calendar on the right.

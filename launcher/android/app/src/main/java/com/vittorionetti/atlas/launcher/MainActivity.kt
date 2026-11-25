@@ -19,6 +19,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -336,6 +337,7 @@ class MainActivity : Activity() {
             runOnUiThread { showFiles(); filesJs(js) }; true
         }
         "haptic" -> { runOnUiThread { haptic(home, a.optString("k")) }; true }
+        "camera.open" -> { openCamera(); true }
         "usage.request" -> { runOnUiThread { openUsageSettings() }; true }
         "home.request" -> { requestHome(); true }
         "quit" -> { quit(); true }
@@ -394,6 +396,14 @@ class MainActivity : Activity() {
 
     private fun haptic(v: View, kind: String) {
         v.performHapticFeedback(if (kind == "tick") HapticFeedbackConstants.CLOCK_TICK else HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    /** Two quick taps on the circle (1.7.0): the phone's own camera app, ready for a photo. No permission is needed:
+     *  the camera app takes the picture and keeps it, the launcher only opens it. */
+    private fun openCamera() = runOnUiThread {
+        try { startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (e: ActivityNotFoundException) { Toast.makeText(this, "No camera app on this phone opens from here.", Toast.LENGTH_SHORT).show() }
+        catch (e: Exception) { Toast.makeText(this, "Couldn't open the camera: " + (e.message ?: "unknown error"), Toast.LENGTH_SHORT).show() }
     }
 
     private fun pair(code: String, address: String) = runOnUiThread {

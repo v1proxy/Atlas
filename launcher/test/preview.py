@@ -73,7 +73,7 @@ with sync_playwright() as p:
     # the dial: one tap opens it; the cross spins while the names swing out onto three rings, the most used nearest
     hub = pg.locator("#hub").bounding_box(); cx, cy = hub["x"] + hub["width"] / 2, hub["y"] + hub["height"] / 2
     pg.mouse.move(cx, cy); pg.mouse.down(); pg.wait_for_timeout(80); pg.mouse.up()
-    pg.wait_for_timeout(240); pg.screenshot(path=os.path.join(SHOTS, "2a-dial-opening.png"))
+    pg.wait_for_timeout(250 + 240); pg.screenshot(path=os.path.join(SHOTS, "2a-dial-opening.png"))   # it waits 250 ms for a second tap
     spinning = pg.evaluate("document.querySelector('#hub i').getAnimations().length")
     pg.wait_for_timeout(1300); pg.screenshot(path=os.path.join(SHOTS, "2b-dial.png"))
     order = pg.evaluate("['Apps','Files'].map(s => [...document.querySelectorAll('#dial .di[data-side=' + s + ']')].map(b => b.textContent + ' ' + b.dataset.ring))")
@@ -101,6 +101,13 @@ with sync_playwright() as p:
     back = pg.evaluate("crossAngle(document.querySelector('#hub i'))")
     pg.wait_for_timeout(1100)
     closed = pg.evaluate("document.querySelector('#dial').hidden") and abs(pg.evaluate("crossAngle(document.querySelector('#hub i'))")) < 1
+    # two quick taps open the camera (1.7.0); one tap opens the dial only once no second tap has come
+    pg.mouse.click(cx, cy); pg.wait_for_timeout(120); pg.mouse.click(cx, cy); pg.wait_for_timeout(600)
+    cam = pg.evaluate("[window.MOCK_CAMERA || 0, document.querySelector('#dial').hidden, Math.round(crossAngle(document.querySelector('#hub i')))]")
+    pg.mouse.click(cx, cy); pg.wait_for_timeout(150)
+    one_early = pg.evaluate("document.querySelector('#dial').hidden")
+    pg.wait_for_timeout(1400); one_late = pg.evaluate("!document.querySelector('#dial').hidden && window.MOCK_CAMERA === 1")
+    pg.mouse.click(cx, cy); pg.wait_for_timeout(1300); one_closed = pg.evaluate("document.querySelector('#dial').hidden")
     pg.click("#box-apps"); pg.wait_for_timeout(400)
     pg.screenshot(path=os.path.join(SHOTS, "3-apps.png"))
     t = pg.locator('#map .tile[data-k="io.homeassistant.companion.android/.Main|0"]').bounding_box()
@@ -383,6 +390,7 @@ with sync_playwright() as p:
     b.close()
 srv.shutdown()
 print("cross spinning while opening:", spinning, "| animations still running after 1.5 s:", still)
+print("double tap: camera opened", cam[0], "time(s) | dial stayed closed:", cam[1], "| cross back to +:", cam[2] == 0, "| one tap: dial still closed at 150 ms:", one_early, "| open after the wait:", one_late, "| closed again:", one_closed)
 print("dial order (name ring):", json.dumps(order, indent=1))
 print("overlapping names:", overlaps or "none", "| outside the screen or under the frame:", outside or "none", "| over the circle:", hubhit or "none")
 print("tapped the first name, launched:", log)

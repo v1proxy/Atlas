@@ -651,12 +651,20 @@ function openPin(p) {
   if (p.key) { const a = L.byKey[p.key]; if (a) launch(a); else toast(`${p.label} is no longer on this phone`); }
   else { startSession(p.path); openFile(p.path, p.dir); }
 }
+// The circle: one tap opens the dial a quarter second later, once no second tap has come; two quick taps open the
+// phone's camera instead (1.7.0); holding opens the dial for taking names off. With the dial open, a tap closes it.
+const DOUBLE_TAP = 250;                                                   // ms from the first tap's lift to the second touch
 (function hubControl() {
   const hub = $("#hub");
-  let timer = 0, down = false, held = false;
+  let timer = 0, down = false, held = false, wait = 0, twice = false;
   const rest = () => turnCross(dialOpen() && dialMode === "edit" ? 45 : 0, 160);
   hub.addEventListener("pointerdown", e => {
-    e.preventDefault(); down = true; held = false;
+    e.preventDefault(); down = true; held = false; twice = false;
+    if (wait) {                                                          // the second of two quick taps: the camera
+      clearTimeout(wait); wait = 0; twice = true;
+      haptic("tick"); turnCross(0, 160); fire("camera.open");
+      return;
+    }
     hub.classList.add("press"); turnCross(45, 520);                      // the cross turns toward an × while you hold
     clearTimeout(timer);
     timer = setTimeout(() => { held = true; hub.classList.remove("press"); haptic("long"); openDial("edit"); }, 520);
@@ -665,9 +673,15 @@ function openPin(p) {
     clearTimeout(timer); hub.classList.remove("press");
     if (!down) return;
     down = false;
-    if (held) return;                                                    // the dial stays open to remove names
+    if (held || twice) return;                                           // the dial stays open to remove names; or the camera is on its way
     if (cancel) return rest();
-    if (dialOpen()) closeDial(true); else { haptic("tick"); openDial("open"); }
+    if (dialOpen()) return closeDial(true);
+    turnCross(crossAngle($("#hub i")), 1);                               // the cross holds still while a second tap may come
+    wait = setTimeout(() => {
+      wait = 0;
+      if (L.screen !== "home" || dialOpen()) return rest();              // something else opened meanwhile
+      haptic("tick"); openDial("open");
+    }, DOUBLE_TAP);
   };
   hub.addEventListener("pointerup", () => end(false));
   hub.addEventListener("pointercancel", () => end(true));
